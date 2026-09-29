@@ -1,21 +1,25 @@
-// Settings Service for UI preferences (Theme, Show/Hide Stock, Workshop info)
+// Settings Service for UI preferences and Invoice configuration
 
 const SETTINGS_KEY = 'furniture_app_settings';
 
 const defaultSettings = {
   theme: 'light',      // 'light' | 'dark'
   showStock: true,     // boolean
-  language: 'es',
-  workshopName: "Leo Woodcrafts & Furniture",
+  language: 'es',      // 'es' | 'en'
+  workshopName: "Leo Woodcrafts & Muebles",
   currency: '$',
+  taxRate: 0,
   invoice: {
-    title: '',
-    phone: '',
-    subtitle: '',
+    title: 'FACTURA / RECIBO',
+    phone: '+54 11 4567-8900',
+    subtitle: 'Muebles artesanales y carpintería a medida',
+    email: 'contacto@leowoodcrafts.com',
+    address: 'Av. Taller 1234, Buenos Aires',
     pageSize: 'A4',
     orientation: 'portrait',
     layout: 'classic',
-    footer: ''
+    footer: '¡Muchas gracias por elegir nuestros muebles artesanales!',
+    terms: 'Garantía estructural de 5 años en ensambles. Madera maciza de primera calidad.'
   }
 };
 
@@ -28,18 +32,28 @@ export const settingsService = {
         return {
           ...defaultSettings,
           ...parsed,
-          invoice: { ...defaultSettings.invoice, ...(parsed.invoice || {}) }
+          invoice: {
+            ...defaultSettings.invoice,
+            ...(parsed.invoice || {})
+          }
         };
       }
     } catch (e) {
       console.warn('Could not read settings from storage', e);
     }
-    return { ...defaultSettings };
+    return {
+      ...defaultSettings,
+      invoice: { ...defaultSettings.invoice }
+    };
   },
 
   setSetting(key, value) {
     const current = this.getSettings();
-    current[key] = value;
+    if (key === 'invoice') {
+      current.invoice = { ...current.invoice, ...value };
+    } else {
+      current[key] = value;
+    }
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(current));
     } catch (e) {

@@ -14,8 +14,8 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
       ]);
       render();
     } catch (err) {
-      console.error('Error loading clients:', err);
-      container.innerHTML = `<div class="error-msg">Failed to load clients: ${err.message}</div>`;
+      console.error('Error al cargar clientes:', err);
+      container.innerHTML = `<div class="error-msg">Error al cargar clientes: ${err.message}</div>`;
     }
   };
 
@@ -31,25 +31,24 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
     container.innerHTML = `
       <div class="section-header">
         <div class="section-title">
-          <span>👥 Clients CRM</span>
-          <span style="font-size:0.85rem; color:var(--text-muted); font-weight:normal;">(${filtered.length} clients)</span>
+          <span>Gestión de clientes</span>
+          <span class="section-count">(${filtered.length} clientes)</span>
         </div>
         <div>
           <button id="btn-add-client" class="btn btn-primary">
-            ➕ Add Client
+            Agregar cliente
           </button>
         </div>
       </div>
 
       <div class="filter-bar">
-        <input type="text" id="client-search" class="search-input" placeholder="Search by client name, phone or address..." value="${escapeHtml(searchTerm)}" />
+        <input type="text" id="client-search" class="search-input" placeholder="Buscar por nombre, teléfono o dirección..." value="${escapeHtml(searchTerm)}" />
       </div>
 
       ${filtered.length === 0 ? `
         <div class="card-table-wrapper" style="padding: 2.5rem; text-align: center; color: var(--text-muted);">
-          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">👥</div>
-          <div style="font-weight: 600; margin-bottom: 0.25rem;">No clients found</div>
-          <div style="font-size: 0.85rem;">Add a new client contact to begin tracking orders.</div>
+          <div style="font-weight: 600; margin-bottom: 0.25rem;">No se encontraron clientes</div>
+          <div style="font-size: 0.85rem;">Agregá un cliente para comenzar a registrar sus pedidos.</div>
         </div>
       ` : `
         <div class="grid-cards">
@@ -58,42 +57,42 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
             const totalSpent = clientOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
 
             return `
-              <div class="item-card client-card" data-id="${client.id}" tabindex="0" aria-label="Edit client ${escapeHtml(client.name)}">
+              <div class="item-card client-card" data-id="${client.id}" tabindex="0" aria-label="Editar cliente ${escapeHtml(client.name)}">
                 <div>
                   <div class="item-card-header">
                     <div>
                       <div class="item-card-title">${escapeHtml(client.name)}</div>
-                      <div class="item-card-meta">${escapeHtml(client.phone || 'No phone provided')}</div>
+                      <div class="item-card-meta">${escapeHtml(client.phone || 'Sin teléfono registrado')}</div>
                     </div>
-                    <span class="badge" style="background:#f1f5f9; color:var(--text-muted);">
-                      ${clientOrders.length} order(s)
+                    <span class="badge" style="background:var(--bg-subtle); color:var(--text-muted);">
+                      ${clientOrders.length} pedido(s)
                     </span>
                   </div>
 
                   <div style="margin-top: 0.5rem; font-size: 0.825rem; color: var(--text-muted);">
-                    📍 ${escapeHtml(client.address || 'No address specified')}
+                    <strong>Dirección:</strong> ${escapeHtml(client.address || 'Sin dirección especificada')}
                   </div>
 
                   ${client.notes ? `
-                    <div style="margin-top: 0.5rem; font-size: 0.8rem; background: #f8fafc; padding: 0.4rem 0.6rem; border-radius: 6px; font-style: italic; color: #475569;">
+                    <div style="margin-top: 0.5rem; font-size: 0.8rem; background: var(--bg-subtle); padding: 0.4rem 0.6rem; border-radius: 6px; font-style: italic; color: var(--text-muted);">
                       "${escapeHtml(client.notes)}"
                     </div>
                   ` : ''}
 
                   <div style="margin-top: 0.75rem; font-size: 0.825rem;">
-                    <strong>Total Value:</strong> <span style="color:var(--primary); font-weight:700;">$${totalSpent.toFixed(2)}</span>
+                    <strong>Total consumido:</strong> <span style="color:var(--primary); font-weight:700;">$${totalSpent.toFixed(2)}</span>
                   </div>
                 </div>
 
                 <div class="item-card-actions">
                   <button class="btn btn-outline btn-sm btn-view-orders" data-id="${client.id}">
-                    📋 View Orders
+                    Ver pedidos
                   </button>
                   <button class="btn btn-outline btn-sm btn-edit-client" data-id="${client.id}">
-                    ✏ Edit
+                    Editar
                   </button>
                   <button class="btn btn-outline btn-sm btn-delete-client" data-id="${client.id}" style="color:var(--danger);">
-                    🗑
+                    Eliminar
                   </button>
                 </div>
               </div>
@@ -104,7 +103,7 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
     `;
     i18nService.apply(container);
 
-    // Listeners
+    // Event listeners
     container.querySelector('#btn-add-client')?.addEventListener('click', () => showClientModal());
 
     const searchInput = container.querySelector('#client-search');
@@ -119,7 +118,8 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
     });
 
     container.querySelectorAll('.btn-edit-client').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.id);
         const client = clients.find(c => Number(c.id) === id);
         if (client) showClientModal(client);
@@ -143,7 +143,8 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
     });
 
     container.querySelectorAll('.btn-view-orders').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.id);
         const client = clients.find(c => Number(c.id) === id);
         if (client) showClientOrdersModal(client);
@@ -151,17 +152,18 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
     });
 
     container.querySelectorAll('.btn-delete-client').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.id);
         const client = clients.find(c => c.id === id);
-        if (confirm(`Are you sure you want to delete client "${client?.name}"?`)) {
+        if (confirm(`¿Estás seguro de que querés eliminar al cliente "${client?.name}"?`)) {
           try {
             await dataService.deleteClient(id);
-            window.showToast?.(`Client deleted`);
+            window.showToast?.('Cliente eliminado');
             loadData();
             if (onRefresh) onRefresh();
           } catch (err) {
-            alert('Failed to delete client: ' + err.message);
+            alert('Error al eliminar cliente: ' + err.message);
           }
         }
       });
@@ -173,33 +175,33 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
       <div class="modal-overlay" id="client-modal">
         <div class="modal-content">
           <div class="modal-header">
-            <div class="modal-title">${existing ? 'Edit Client Profile' : 'Add New Client'}</div>
+            <div class="modal-title">${existing ? 'Editar perfil del cliente' : 'Agregar nuevo cliente'}</div>
             <button class="modal-close" id="close-modal">&times;</button>
           </div>
           <div class="modal-body">
             <form id="client-form">
               <div class="form-group">
-                <label class="form-label">Full Name *</label>
-                <input type="text" id="client-name" class="form-control" value="${escapeHtml(existing?.name || '')}" placeholder="e.g. John Doe" required />
+                <label class="form-label">Nombre completo *</label>
+                <input type="text" id="client-name" class="form-control" value="${escapeHtml(existing?.name || '')}" placeholder="Ej. Juan Pérez" required />
               </div>
               <div class="form-group">
-                <label class="form-label">Phone Number</label>
-                <input type="tel" id="client-phone" class="form-control" value="${escapeHtml(existing?.phone || '')}" placeholder="e.g. +1 (555) 000-0000" />
+                <label class="form-label">Teléfono de contacto</label>
+                <input type="tel" id="client-phone" class="form-control" value="${escapeHtml(existing?.phone || '')}" placeholder="Ej. +54 11 1234-5678" />
               </div>
               <div class="form-group">
-                <label class="form-label">Delivery Address / Location</label>
-                <input type="text" id="client-address" class="form-control" value="${escapeHtml(existing?.address || '')}" placeholder="e.g. 123 Main St, Suite 4" />
+                <label class="form-label">Dirección de entrega</label>
+                <input type="text" id="client-address" class="form-control" value="${escapeHtml(existing?.address || '')}" placeholder="Ej. Av. Siempreviva 742, CABA" />
               </div>
               <div class="form-group">
-                <label class="form-label">Workshop / Preferences Notes</label>
-                <textarea id="client-notes" class="form-control" rows="3" placeholder="Wood finish preferences, delivery hours, custom requests...">${escapeHtml(existing?.notes || '')}</textarea>
+                <label class="form-label">Notas y preferencias del cliente</label>
+                <textarea id="client-notes" class="form-control" rows="3" placeholder="Preferencia de acabados de madera, horarios de entrega...">${escapeHtml(existing?.notes || '')}</textarea>
               </div>
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline" id="btn-cancel">Cancel</button>
+            <button type="button" class="btn btn-outline" id="btn-cancel">Cancelar</button>
             <button type="button" class="btn btn-primary" id="btn-save">
-              💾 ${existing ? 'Update Client' : 'Save Client'}
+              ${existing ? 'Guardar cambios' : 'Guardar cliente'}
             </button>
           </div>
         </div>
@@ -218,7 +220,7 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
     document.getElementById('btn-save').addEventListener('click', async () => {
       const name = document.getElementById('client-name').value.trim();
       if (!name) {
-        alert('Client name is required.');
+        alert('El nombre del cliente es obligatorio.');
         return;
       }
       const phone = document.getElementById('client-phone').value.trim();
@@ -233,12 +235,12 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
           address,
           notes
         });
-        window.showToast?.(existing ? 'Client updated' : 'Client created');
+        window.showToast?.(existing ? 'Cliente actualizado' : 'Cliente registrado');
         close();
         loadData();
         if (onRefresh) onRefresh();
       } catch (err) {
-        alert('Failed to save client: ' + err.message);
+        alert('Error al guardar cliente: ' + err.message);
       }
     });
   };
@@ -250,30 +252,30 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
       <div class="modal-overlay" id="client-orders-modal">
         <div class="modal-content" style="max-width: 650px;">
           <div class="modal-header">
-            <div class="modal-title">📦 Order History for ${escapeHtml(client.name)}</div>
+            <div class="modal-title">Historial de pedidos de ${escapeHtml(client.name)}</div>
             <button class="modal-close" id="close-modal">&times;</button>
           </div>
           <div class="modal-body">
             ${clientOrders.length === 0 ? `
-              <p style="color:var(--text-muted); text-align:center; padding: 2rem;">No orders registered for this client yet.</p>
+              <p style="color:var(--text-muted); text-align:center; padding: 2rem;">Este cliente todavía no tiene pedidos registrados.</p>
             ` : `
               <div class="card-table-wrapper">
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Order #</th>
-                      <th>Status</th>
-                      <th>Items</th>
+                      <th>N.º pedido</th>
+                      <th>Estado</th>
+                      <th>Artículos</th>
                       <th style="text-align:right;">Total</th>
-                      <th style="text-align:right;">Balance</th>
+                      <th style="text-align:right;">Saldo</th>
                     </tr>
                   </thead>
                   <tbody>
                     ${clientOrders.map(o => `
                       <tr>
                         <td><strong>#${String(o.id).padStart(4, '0')}</strong></td>
-                        <td><span class="badge ${o.status === 'Delivered' ? 'badge-delivered' : o.status === 'In Production' ? 'badge-production' : 'badge-pending'}">${o.status}</span></td>
-                        <td>${(o.items || []).map(i => `${i.quantity}x ${i.product_name}`).join(', ') || 'Custom item'}</td>
+                        <td><span class="badge ${o.status === 'Delivered' ? 'badge-delivered' : o.status === 'In Production' ? 'badge-production' : 'badge-pending'}">${o.status === 'Delivered' ? 'Entregado' : o.status === 'In Production' ? 'En fabricación' : 'Pendiente'}</span></td>
+                        <td>${(o.items || []).map(i => `${i.quantity}x ${i.product_name}`).join(', ') || 'Mueble personalizado'}</td>
                         <td style="text-align:right; font-weight:700;">$${Number(o.total_amount).toFixed(2)}</td>
                         <td style="text-align:right; color:#b45309; font-weight:600;">$${Math.max(0, Number(o.total_amount) - Number(o.deposit_amount)).toFixed(2)}</td>
                       </tr>
@@ -284,7 +286,7 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
             `}
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline" id="btn-close">Close</button>
+            <button type="button" class="btn btn-outline" id="btn-close">Cerrar</button>
           </div>
         </div>
       </div>
