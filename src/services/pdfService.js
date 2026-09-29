@@ -3,8 +3,6 @@ import pdfFonts from 'pdfmake/build/vfs_fonts.js';
 import { dataService, isNativePlatform } from './dataService.js';
 import { settingsService } from './settingsService.js';
 
-// pdfmake 0.2 exports the virtual file system as the module's default object.
-// Older builds wrapped it under pdfMake.vfs, so accept both shapes.
 const virtualFileSystem = pdfFonts?.pdfMake?.vfs || pdfFonts?.vfs || pdfFonts;
 if (!virtualFileSystem || !Object.keys(virtualFileSystem).length) {
   throw new Error('PDF fonts could not be loaded. Reinstall dependencies and rebuild the app.');
@@ -18,20 +16,18 @@ if (typeof pdfMake.addVirtualFileSystem === 'function') {
 const labels = {
   es: {
     invoiceTitle: 'FACTURA / RECIBO', brandSubtitle: 'Muebles artesanales y carpintería a medida',
-    customer: 'DATOS DEL CLIENTE', payment: 'RESUMEN DE PAGO', total: 'Total del pedido:', deposit: 'Anticipo pagado:', balance: 'Saldo pendiente:', paid: 'PAGADO EN SU TOTALIDAD', partial: 'ANTICIPO PARCIAL - SALDO A LA ENTREGA',
+    customer: 'DATOS DEL CLIENTE', payment: 'RESUMEN DE PAGO', subtotalAmount: 'Subtotal:', taxAmount: 'IVA / Impuesto:', total: 'Total del pedido:', deposit: 'Anticipo pagado:', balance: 'Saldo pendiente:', paid: 'PAGADO EN SU TOTALIDAD', partial: 'ANTICIPO PARCIAL - SALDO A LA ENTREGA',
     items: 'DETALLE DEL PEDIDO', number: 'N.º', description: 'Descripción', quantity: 'Cant.', unitPrice: 'Precio unitario', lineTotal: 'Importe',
-    terms: 'TÉRMINOS DE PRODUCCIÓN Y GARANTÍA', term1: 'La madera maciza puede expandirse naturalmente; mantenga la humedad interior entre 35 % y 50 %.',
-    term2: 'Garantía estructural de 5 años en ensambles de caja y espiga.', term3: 'El saldo final se paga al entregar, antes de la instalación.',
-    subtotal: 'Subtotal:', received: 'Anticipo recibido:', signatureClient: 'Aceptación y firma del cliente', signatureMaker: 'Firma del fabricante', phone: 'Teléfono:', delivery: 'Entrega:', notes: 'Notas:', date: 'Fecha:', receipt: 'Recibo:', custom: 'Mueble personalizado', walkIn: 'Cliente de mostrador', pickup: 'Recoger en taller',
-    status: { Pending: 'PENDIENTE', 'In Production': 'EN PRODUCCIÓN', Delivered: 'ENTREGADO' }
+    terms: 'TÉRMINOS DE PRODUCCIÓN Y GARANTÍA',
+    subtotal: 'Subtotal:', received: 'Anticipo recibido:', signatureClient: 'Aceptación y firma del cliente', signatureMaker: 'Firma del fabricante', phone: 'Teléfono:', email: 'Email:', address: 'Dirección:', delivery: 'Entrega:', notes: 'Notas:', date: 'Fecha:', receipt: 'Recibo:', custom: 'Mueble personalizado', walkIn: 'Cliente de mostrador', pickup: 'Retiro en taller',
+    status: { Pending: 'PENDIENTE', 'In Production': 'EN FABRICACIÓN', Delivered: 'ENTREGADO' }
   },
   en: {
     invoiceTitle: 'INVOICE / RECEIPT', brandSubtitle: 'Handcrafted furniture and custom woodwork',
-    customer: 'CUSTOMER INFORMATION', payment: 'PAYMENT BREAKDOWN', total: 'Order total:', deposit: 'Deposit paid:', balance: 'Balance due:', paid: 'PAID IN FULL', partial: 'PARTIAL DEPOSIT - BALANCE UPON DELIVERY',
+    customer: 'CUSTOMER INFORMATION', payment: 'PAYMENT BREAKDOWN', subtotalAmount: 'Subtotal:', taxAmount: 'Tax:', total: 'Order total:', deposit: 'Deposit paid:', balance: 'Balance due:', paid: 'PAID IN FULL', partial: 'PARTIAL DEPOSIT - BALANCE UPON DELIVERY',
     items: 'ORDER DETAILS', number: 'No.', description: 'Description', quantity: 'Qty', unitPrice: 'Unit price', lineTotal: 'Amount',
-    terms: 'PRODUCTION & WARRANTY TERMS', term1: 'Solid hardwood may expand naturally; maintain indoor humidity between 35% and 50%.',
-    term2: '5-year structural warranty on mortise-and-tenon joints.', term3: 'Final balance is due on delivery before installation.',
-    subtotal: 'Subtotal:', received: 'Deposit received:', signatureClient: 'Customer acceptance & signature', signatureMaker: 'Craftsman signature', phone: 'Phone:', delivery: 'Delivery:', notes: 'Notes:', date: 'Date:', receipt: 'Receipt:', custom: 'Custom furniture piece', walkIn: 'Walk-in customer', pickup: 'Workshop pickup',
+    terms: 'PRODUCTION & WARRANTY TERMS',
+    subtotal: 'Subtotal:', received: 'Deposit received:', signatureClient: 'Customer acceptance & signature', signatureMaker: 'Craftsman signature', phone: 'Phone:', email: 'Email:', address: 'Address:', delivery: 'Delivery:', notes: 'Notes:', date: 'Date:', receipt: 'Receipt:', custom: 'Custom furniture piece', walkIn: 'Walk-in customer', pickup: 'Workshop pickup',
     status: { Pending: 'PENDING', 'In Production': 'IN PRODUCTION', Delivered: 'DELIVERED' }
   }
 };
@@ -58,24 +54,40 @@ export const generatePdfReceipt = (order, client = {}) => {
   const language = settings.language === 'en' ? 'en' : 'es';
   const text = labels[language];
   const currency = settings.currency || '$';
+  const taxRate = Number(settings.taxRate) || 0;
   const money = value => `${currency}${(Number(value) || 0).toFixed(2)}`;
+
   const clientName = client.name || order.client_name || text.walkIn;
   const clientPhone = client.phone || order.client_phone || '—';
   const clientAddress = client.address || order.client_address || text.pickup;
   const clientNotes = client.notes || '';
-  const workshopName = settings.workshopName || 'Leo Woodcrafts & Furniture';
+
+  const workshopName = settings.workshopName || 'Leo Woodcrafts & Muebles';
   const invoicePhone = String(invoice.phone || '').trim();
+  const invoiceEmail = String(invoice.email || '').trim();
+  const invoiceAddress = String(invoice.address || '').trim();
+  const customTerms = String(invoice.terms || '').trim();
+
   const date = order.created_at ? new Date(order.created_at) : new Date();
-  const orderDate = date.toLocaleDateString(language === 'es' ? 'es-MX' : 'en-US', {
+  const orderDate = date.toLocaleDateString(language === 'es' ? 'es-AR' : 'en-US', {
     year: 'numeric', month: 'short', day: 'numeric'
   });
-  const total = Number(order.total_amount) || 0;
+
+  const rawTotal = Number(order.total_amount) || 0;
+  let subtotalAmount = rawTotal;
+  let taxAmount = 0;
+  if (taxRate > 0) {
+    taxAmount = (rawTotal * taxRate) / 100;
+  }
+  const total = rawTotal + taxAmount;
   const deposit = Number(order.deposit_amount) || 0;
   const balance = Math.max(0, total - deposit);
   const paid = balance <= 0.01;
+
   const items = Array.isArray(order.items) && order.items.length
     ? order.items
-    : [{ product_name: text.custom, quantity: 1, unit_price: total, subtotal: total }];
+    : [{ product_name: text.custom, quantity: 1, unit_price: rawTotal, subtotal: rawTotal }];
+
   const tableBody = [[
     { text: text.number, style: 'tableHeader', alignment: 'center' },
     { text: text.description, style: 'tableHeader' },
@@ -98,6 +110,10 @@ export const generatePdfReceipt = (order, client = {}) => {
   });
 
   const compact = invoice.layout === 'compact';
+  const termsContent = customTerms || (language === 'es'
+    ? '• Garantía estructural de 5 años en ensambles de madera maciza.\n• Mantené la humedad ambiente entre 35% y 50% para proteger la madera.\n• El saldo se cancela al momento de la entrega.'
+    : '• 5-year structural warranty on solid wood joints.\n• Maintain indoor humidity between 35% and 50%.\n• Final balance is due on delivery.');
+
   const classicDetails = compact ? [] : [{
     margin: [0, 14, 0, 0],
     columns: [
@@ -105,9 +121,7 @@ export const generatePdfReceipt = (order, client = {}) => {
         width: '55%',
         stack: [
           { text: text.terms, fontSize: 8, bold: true, color: '#475569', margin: [0, 0, 0, 3] },
-          { text: `• ${text.term1}`, fontSize: 7.5, color: '#64748b' },
-          { text: `• ${text.term2}`, fontSize: 7.5, color: '#64748b', margin: [0, 2, 0, 0] },
-          { text: `• ${text.term3}`, fontSize: 7.5, color: '#64748b', margin: [0, 2, 0, 0] }
+          { text: termsContent, fontSize: 7.5, color: '#64748b', leading: 1.3 }
         ]
       },
       {
@@ -115,7 +129,8 @@ export const generatePdfReceipt = (order, client = {}) => {
         table: {
           widths: ['*', 90],
           body: [
-            [{ text: text.subtotal, fontSize: 9 }, { text: money(total), alignment: 'right', fontSize: 9 }],
+            [{ text: text.subtotal, fontSize: 9 }, { text: money(rawTotal), alignment: 'right', fontSize: 9 }],
+            ...(taxRate > 0 ? [[{ text: `${text.taxAmount} (${taxRate}%)`, fontSize: 9 }, { text: money(taxAmount), alignment: 'right', fontSize: 9 }]] : []),
             [{ text: text.received, fontSize: 9, color: '#059669' }, { text: money(deposit), alignment: 'right', fontSize: 9, color: '#059669' }],
             [{ text: text.balance, fontSize: 10, bold: true, color: '#92400e' }, { text: money(balance), alignment: 'right', fontSize: 10, bold: true, color: '#92400e' }]
           ]
@@ -143,7 +158,9 @@ export const generatePdfReceipt = (order, client = {}) => {
           [
             { text: workshopName, fontSize: 18, bold: true, color: '#92400e' },
             { text: invoice.subtitle || text.brandSubtitle, fontSize: 9, color: '#64748b', margin: [0, 2, 0, 4] },
-            ...(invoicePhone ? [{ text: `${text.phone} ${invoicePhone}`, fontSize: 9, color: '#64748b' }] : [])
+            ...(invoicePhone ? [{ text: `${text.phone} ${invoicePhone}`, fontSize: 8.5, color: '#64748b' }] : []),
+            ...(invoiceEmail ? [{ text: `${text.email} ${invoiceEmail}`, fontSize: 8.5, color: '#64748b' }] : []),
+            ...(invoiceAddress ? [{ text: `${text.address} ${invoiceAddress}`, fontSize: 8.5, color: '#64748b' }] : [])
           ],
           [
             { text: invoice.title || text.invoiceTitle, fontSize: 14, bold: true, alignment: 'right', color: '#1e293b' },
@@ -172,7 +189,9 @@ export const generatePdfReceipt = (order, client = {}) => {
             width: '48%',
             table: { widths: ['*'], body: [[{ fillColor: '#f8fafc', margin: [8, 8, 8, 8], stack: [
               { text: text.payment, fontSize: 9, bold: true, color: '#64748b', margin: [0, 0, 0, 4] },
-              { columns: [{ text: text.total, fontSize: 9 }, { text: money(total), fontSize: 9, bold: true, alignment: 'right' }] },
+              ...(taxRate > 0 ? [{ columns: [{ text: text.subtotalAmount, fontSize: 8.5 }, { text: money(rawTotal), fontSize: 8.5, alignment: 'right' }] }] : []),
+              ...(taxRate > 0 ? [{ columns: [{ text: `${text.taxAmount} (${taxRate}%)`, fontSize: 8.5 }, { text: money(taxAmount), fontSize: 8.5, alignment: 'right' }] }] : []),
+              { columns: [{ text: text.total, fontSize: 9, bold: true }, { text: money(total), fontSize: 9, bold: true, alignment: 'right' }] },
               { columns: [{ text: text.deposit, fontSize: 9, color: '#059669', margin: [0, 3, 0, 0] }, { text: `-${money(deposit)}`, fontSize: 9, bold: true, color: '#059669', alignment: 'right', margin: [0, 3, 0, 0] }] },
               { canvas: [{ type: 'line', x1: 0, y1: 5, x2: 220, y2: 5, lineWidth: 1, lineColor: '#cbd5e1' }], margin: [0, 4, 0, 4] },
               { columns: [{ text: text.balance, fontSize: 10, bold: true, color: paid ? '#059669' : '#b45309' }, { text: money(balance), fontSize: 10, bold: true, color: paid ? '#059669' : '#b45309', alignment: 'right' }] },
@@ -246,7 +265,7 @@ export const generatePdfReceipt = (order, client = {}) => {
       const tab = window.open('about:blank', '_blank');
       if (!tab) throw new Error('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes para este sitio.');
       const url = URL.createObjectURL(await getBlob());
-      tab.document.write(`<iframe title="Invoice PDF" src="${url}" style="border:0;width:100%;height:100%"></iframe>`);
+      tab.document.write(`<iframe title="Factura PDF" src="${url}" style="border:0;width:100%;height:100%"></iframe>`);
       tab.document.close();
       tab.addEventListener('load', () => setTimeout(() => tab.print(), 500), { once: true });
       setTimeout(() => URL.revokeObjectURL(url), 120_000);

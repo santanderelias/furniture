@@ -26,8 +26,8 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
         openNewOrder = false;
       }
     } catch (err) {
-      console.error('Error loading orders data:', err);
-      container.innerHTML = `<div class="error-msg">Failed to load orders: ${err.message}</div>`;
+      console.error('Error al cargar pedidos:', err);
+      container.innerHTML = `<div class="error-msg">Error al cargar pedidos: ${err.message}</div>`;
     }
   };
 
@@ -43,22 +43,27 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     container.innerHTML = `
       <div class="section-header">
         <div class="section-title">
-          <span>📦 Orders & Custom Woodwork Quotes</span>
-          <span style="font-size:0.85rem; color:var(--text-muted); font-weight:normal;">(${filtered.length} orders)</span>
+          <span>Pedidos y cotizaciones</span>
+          <span class="section-count">(${filtered.length} pedidos)</span>
         </div>
         <div>
           <button id="btn-add-order" class="btn btn-primary">
-            ➕ New Order / Quote
+            Nuevo pedido
           </button>
         </div>
       </div>
 
       <div class="filter-bar">
-        <input type="text" id="order-search" class="search-input" placeholder="Search by client or order #..." value="${escapeHtml(searchTerm)}" />
+        <input type="text" id="order-search" class="search-input" placeholder="Buscar por cliente o n.º de pedido..." value="${escapeHtml(searchTerm)}" />
         <div class="filter-pills">
-          ${['All', 'Pending', 'In Production', 'Delivered'].map(status => `
-            <button class="filter-pill ${activeFilter === status ? 'active' : ''}" data-status="${status}">
-              ${status}
+          ${[
+            { id: 'All', label: 'Todos' },
+            { id: 'Pending', label: 'Pendientes' },
+            { id: 'In Production', label: 'En fabricación' },
+            { id: 'Delivered', label: 'Entregados' }
+          ].map(f => `
+            <button class="filter-pill ${activeFilter === f.id ? 'active' : ''}" data-status="${f.id}">
+              ${f.label}
             </button>
           `).join('')}
         </div>
@@ -66,68 +71,59 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
 
       ${filtered.length === 0 ? `
         <div class="card-table-wrapper" style="padding: 2.5rem; text-align: center; color: var(--text-muted);">
-          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📭</div>
-          <div style="font-weight: 600; margin-bottom: 0.25rem;">No orders found</div>
-          <div style="font-size: 0.85rem;">Create a new furniture order or quote to get started.</div>
+          <div style="font-weight: 600; margin-bottom: 0.25rem;">No se encontraron pedidos</div>
+          <div style="font-size: 0.85rem;">Creá un nuevo pedido o cotización para comenzar.</div>
         </div>
       ` : `
-        <div class="card-table-wrapper desktop-order-table">
-          <table class="data-table">
+        <div class="card-table-wrapper">
+          <table class="data-table orders-table">
             <thead>
               <tr>
-                <th>Order #</th>
-                <th>Client</th>
-                <th>Status</th>
-                <th>Items</th>
-                <th style="text-align:right;">Total</th>
-                <th style="text-align:right;">Deposit</th>
-                <th style="text-align:right;">Balance</th>
-                <th style="text-align:center;">Receipt & Actions</th>
+                <th>N.º pedido</th>
+                <th>Cliente</th>
+                <th>Estado</th>
+                <th>Total</th>
+                <th>Anticipo</th>
+                <th>Saldo</th>
+                <th style="text-align:center;">Acciones</th>
               </tr>
             </thead>
             <tbody>
               ${filtered.map(order => {
-                const badgeClass = order.status === 'Delivered' ? 'badge-delivered' : order.status === 'In Production' ? 'badge-production' : 'badge-pending';
-                const itemsCount = (order.items || []).length;
-                const itemsPreview = (order.items || []).map(i => `${i.quantity}x ${i.product_name}`).join(', ') || 'Custom item';
+                const itemsPreview = (order.items || []).map(i => `${i.quantity}x ${i.product_name}`).join(', ') || 'Mueble personalizado';
                 const balance = Math.max(0, (Number(order.total_amount) || 0) - (Number(order.deposit_amount) || 0));
 
                 return `
-                  <tr class="clickable-row" data-id="${order.id}" tabindex="0" aria-label="Edit order ${order.id}">
-                    <td><strong>#${String(order.id).padStart(4, '0')}</strong></td>
-                    <td>
-                      <div style="font-weight:600; color:var(--text-main);">${escapeHtml(order.client_name || 'Walk-in Client')}</div>
-                      <div style="font-size:0.775rem; color:var(--text-muted);">${escapeHtml(order.client_phone || '')}</div>
+                  <tr class="clickable-row order-main-row" data-id="${order.id}" tabindex="0" aria-label="Editar pedido ${order.id}">
+                    <td data-label="N.º pedido"><strong>#${String(order.id).padStart(4, '0')}</strong></td>
+                    <td data-label="Cliente">
+                      <div class="row-title">${escapeHtml(order.client_name || 'Cliente de mostrador')}</div>
+                      <div class="row-subtitle">${escapeHtml(order.client_phone || '')}</div>
                     </td>
-                    <td>
-                      <select class="form-control status-select" data-id="${order.id}" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.775rem; font-weight: 600;">
-                        <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>⏳ Pending</option>
-                        <option value="In Production" ${order.status === 'In Production' ? 'selected' : ''}>🔨 In Production</option>
-                        <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>✔ Delivered</option>
+                    <td data-label="Estado">
+                      <select class="form-control status-select" data-id="${order.id}">
+                        <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pendiente</option>
+                        <option value="In Production" ${order.status === 'In Production' ? 'selected' : ''}>En fabricación</option>
+                        <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Entregado</option>
                       </select>
                     </td>
-                    <td style="max-width: 200px;">
-                      <div style="font-size:0.8rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(itemsPreview)}">
-                        ${escapeHtml(itemsPreview)}
+                    <td data-label="Total" class="num-cell"><strong>$${Number(order.total_amount).toFixed(2)}</strong></td>
+                    <td data-label="Anticipo" class="num-cell text-success">$${Number(order.deposit_amount).toFixed(2)}</td>
+                    <td data-label="Saldo" class="num-cell ${balance > 0 ? 'text-warning' : 'text-success'}">
+                      <strong>$${balance.toFixed(2)}</strong>
+                    </td>
+                    <td data-label="Acciones" class="actions-cell">
+                      <div class="action-buttons">
+                        <button class="btn btn-outline btn-sm btn-pdf" data-id="${order.id}" title="Recibo PDF">Recibo PDF</button>
+                        <button class="btn btn-outline btn-sm btn-edit" data-id="${order.id}">Editar</button>
+                        <button class="btn btn-outline btn-sm btn-delete" data-id="${order.id}" style="color:var(--danger);">Eliminar</button>
                       </div>
-                      <div style="font-size:0.725rem; color:var(--text-muted);">${itemsCount} item(s)</div>
                     </td>
-                    <td style="text-align:right; font-weight:700;">$${Number(order.total_amount).toFixed(2)}</td>
-                    <td style="text-align:right; color:#059669; font-weight:600;">$${Number(order.deposit_amount).toFixed(2)}</td>
-                    <td style="text-align:right; font-weight:700; color:${balance > 0 ? '#b45309' : '#059669'};">
-                      $${balance.toFixed(2)}
-                    </td>
-                    <td style="text-align:center;">
-                      <div style="display:inline-flex; gap:0.35rem; align-items:center;">
-                        <button class="btn btn-outline btn-sm btn-pdf" data-id="${order.id}" title="Generate PDF Receipt">
-                          🧾 PDF Receipt
-                        </button>
-                        <button class="btn btn-outline btn-sm btn-edit" data-id="${order.id}" title="Edit Order">
-                          ✏
-                        </button>
-                        <button class="btn btn-outline btn-sm btn-delete" data-id="${order.id}" title="Delete" style="color:var(--danger);">
-                          🗑
-                        </button>
+                  </tr>
+                  <tr class="order-sub-row" data-id="${order.id}">
+                    <td colspan="7">
+                      <div class="sub-row-content">
+                        <span class="sub-row-label">Detalle:</span> ${escapeHtml(itemsPreview)}
                       </div>
                     </td>
                   </tr>
@@ -135,41 +131,6 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
               }).join('')}
             </tbody>
           </table>
-        </div>
-
-        <div class="mobile-order-cards">
-          ${filtered.map(order => {
-            const itemsPreview = (order.items || []).map(item => `${item.quantity}× ${item.product_name}`).join(', ') || 'Custom item';
-            const balance = Math.max(0, (Number(order.total_amount) || 0) - (Number(order.deposit_amount) || 0));
-            const badgeClass = order.status === 'Delivered' ? 'badge-delivered' : order.status === 'In Production' ? 'badge-production' : 'badge-pending';
-            return `
-              <article class="order-card" data-id="${order.id}" tabindex="0" aria-label="Edit order ${order.id}">
-                <div class="order-card-header">
-                  <div class="order-card-title">Order #${String(order.id).padStart(4, '0')}</div>
-                  <span class="badge ${badgeClass}">${escapeHtml(order.status || 'Pending')}</span>
-                </div>
-                <div class="order-card-client">${escapeHtml(order.client_name || 'Walk-in Client')}</div>
-                <div class="item-card-meta">${escapeHtml(order.client_phone || '')}</div>
-                <div class="order-card-items">${escapeHtml(itemsPreview)}</div>
-                <div class="order-card-finances">
-                  <div><span class="item-card-meta">Total</span><br><strong>$${Number(order.total_amount).toFixed(2)}</strong></div>
-                  <div><span class="item-card-meta">Deposit</span><br><strong>$${Number(order.deposit_amount).toFixed(2)}</strong></div>
-                  <div><span class="item-card-meta">Balance</span><br><strong>$${balance.toFixed(2)}</strong></div>
-                </div>
-                <label class="form-label" for="mobile-status-${order.id}">Production status</label>
-                <select id="mobile-status-${order.id}" class="form-control status-select order-card-status" data-id="${order.id}">
-                  <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>⏳ Pending</option>
-                  <option value="In Production" ${order.status === 'In Production' ? 'selected' : ''}>🔨 In Production</option>
-                  <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>✔ Delivered</option>
-                </select>
-                <div class="order-card-actions">
-                  <button class="btn btn-outline btn-sm btn-pdf" data-id="${order.id}">🧾 PDF</button>
-                  <button class="btn btn-outline btn-sm btn-edit" data-id="${order.id}">✏ Edit</button>
-                  <button class="btn btn-outline btn-sm btn-delete" data-id="${order.id}" style="color:var(--danger);">🗑 Delete</button>
-                </div>
-              </article>
-            `;
-          }).join('')}
         </div>
       `}
     `;
@@ -196,7 +157,7 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
       });
     });
 
-    container.querySelectorAll('.clickable-row, .order-card').forEach(item => {
+    container.querySelectorAll('.clickable-row').forEach(item => {
       const openForEdit = (event) => {
         if (event.target.closest('button, select, a')) return;
         const order = orders.find(candidate => Number(candidate.id) === Number(item.dataset.id));
@@ -213,22 +174,24 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     });
 
     container.querySelectorAll('.status-select').forEach(sel => {
-      sel.addEventListener('change', async () => {
+      sel.addEventListener('change', async (e) => {
+        e.stopPropagation();
         const id = sel.dataset.id;
         const newStatus = sel.value;
         try {
           await dataService.updateOrderStatus(id, newStatus);
-          window.showToast?.(`Order #${id} marked as ${newStatus}`);
+          window.showToast?.(`Pedido #${id} actualizado`);
           loadData();
           if (onRefresh) onRefresh();
         } catch (err) {
-          alert('Failed to update status: ' + err.message);
+          alert('Error al actualizar estado: ' + err.message);
         }
       });
     });
 
     container.querySelectorAll('.btn-pdf').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.id);
         const order = orders.find(o => Number(o.id) === id);
         if (order) {
@@ -244,7 +207,8 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     });
 
     container.querySelectorAll('.btn-edit').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.id);
         const order = orders.find(o => o.id === id);
         if (order) showOrderModal(order);
@@ -252,16 +216,17 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     });
 
     container.querySelectorAll('.btn-delete').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.id);
-        if (confirm(`Are you sure you want to delete Order #${id}?`)) {
+        if (confirm(`¿Estás seguro de que querés eliminar el pedido #${id}?`)) {
           try {
             await dataService.deleteOrder(id);
-            window.showToast?.(`Order #${id} deleted`);
+            window.showToast?.(`Pedido #${id} eliminado`);
             loadData();
             if (onRefresh) onRefresh();
           } catch (err) {
-            alert('Failed to delete order: ' + err.message);
+            alert('Error al eliminar el pedido: ' + err.message);
           }
         }
       });
@@ -272,7 +237,7 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     let orderItems = existingOrder ? [...(existingOrder.items || [])] : [];
     if (orderItems.length === 0) {
       orderItems.push({
-        product_name: products[0]?.name || 'Solid Oak Dining Table (6-Seater)',
+        product_name: products[0]?.name || 'Mesa de comedor de roble (6 personas)',
         quantity: 1,
         unit_price: products[0]?.price || 850,
         subtotal: products[0]?.price || 850
@@ -290,60 +255,60 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
       <div class="modal-overlay" id="order-modal">
         <div class="modal-content" style="max-width: 650px;">
           <div class="modal-header">
-            <div class="modal-title">${existingOrder ? `Edit Order #${existingOrder.id}` : 'Create New Furniture Order'}</div>
+            <div class="modal-title">${existingOrder ? `Editar pedido #${existingOrder.id}` : 'Crear nuevo pedido'}</div>
             <button class="modal-close" id="close-modal">&times;</button>
           </div>
           <div class="modal-body">
             <form id="order-form">
               <div class="form-row">
                 <div class="form-group">
-                  <label class="form-label">Client *</label>
+                  <label class="form-label">Cliente *</label>
                   <select id="order-client" class="form-control" required>
-                    <option value="">-- Select Client --</option>
+                    <option value="">-- Seleccionar cliente --</option>
                     ${clients.map(c => `
                       <option value="${c.id}" ${existingOrder && Number(existingOrder.client_id) === Number(c.id) ? 'selected' : ''}>
-                        ${escapeHtml(c.name)} (${escapeHtml(c.phone || 'No phone')})
+                        ${escapeHtml(c.name)} (${escapeHtml(c.phone || 'Sin teléfono')})
                       </option>
                     `).join('')}
                   </select>
                 </div>
                 <div class="form-group">
-                  <label class="form-label">Production Status</label>
+                  <label class="form-label">Estado de fabricación</label>
                   <select id="order-status" class="form-control">
-                    <option value="Pending" ${existingOrder?.status === 'Pending' ? 'selected' : ''}>Pending</option>
-                    <option value="In Production" ${existingOrder?.status === 'In Production' ? 'selected' : ''}>In Production</option>
-                    <option value="Delivered" ${existingOrder?.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                    <option value="Pending" ${existingOrder?.status === 'Pending' ? 'selected' : ''}>Pendiente</option>
+                    <option value="In Production" ${existingOrder?.status === 'In Production' ? 'selected' : ''}>En fabricación</option>
+                    <option value="Delivered" ${existingOrder?.status === 'Delivered' ? 'selected' : ''}>Entregado</option>
                   </select>
                 </div>
               </div>
 
               <div class="form-group">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-                  <label class="form-label" style="margin-bottom:0;">Order Line Items *</label>
-                  <button type="button" id="btn-add-item" class="btn btn-outline btn-sm">➕ Add Product / Line Item</button>
+                  <label class="form-label" style="margin-bottom:0;">Artículos del pedido *</label>
+                  <button type="button" id="btn-add-item" class="btn btn-outline btn-sm">Agregar artículo</button>
                 </div>
 
                 <div class="order-items-builder" id="items-container">
-                  <!-- Rendered dynamically -->
+                  <!-- Se renderiza dinámicamente -->
                 </div>
               </div>
 
-              <div class="form-row" style="background:#f8fafc; padding:0.75rem; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
+              <div class="form-row" style="background:var(--bg-subtle); padding:0.75rem; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
                 <div class="form-group" style="margin-bottom:0;">
-                  <label class="form-label">Total Amount ($)</label>
-                  <input type="number" step="0.01" id="order-total" class="form-control" value="${totalAmount.toFixed(2)}" readonly style="font-weight:700; font-size:1.1rem; background:#f1f5f9;" />
+                  <label class="form-label">Monto total ($)</label>
+                  <input type="number" step="0.01" id="order-total" class="form-control" value="${totalAmount.toFixed(2)}" readonly style="font-weight:700; font-size:1.1rem; background:var(--bg-main);" />
                 </div>
                 <div class="form-group" style="margin-bottom:0;">
-                  <label class="form-label">Deposit Paid ($)</label>
-                  <input type="number" step="0.01" id="order-deposit" class="form-control" value="${depositAmount.toFixed(2)}" required style="font-weight:700; font-size:1.1rem; color:#059669;" />
+                  <label class="form-label">Anticipo pagado ($)</label>
+                  <input type="number" step="0.01" id="order-deposit" class="form-control" value="${depositAmount.toFixed(2)}" required style="font-weight:700; font-size:1.1rem; color:var(--success);" />
                   <div style="display:flex; gap:0.25rem; margin-top:0.35rem;">
                     <button type="button" class="btn btn-outline btn-sm deposit-preset" data-pct="0.3">30%</button>
                     <button type="button" class="btn btn-outline btn-sm deposit-preset" data-pct="0.5">50%</button>
-                    <button type="button" class="btn btn-outline btn-sm deposit-preset" data-pct="1.0">100% (Full)</button>
+                    <button type="button" class="btn btn-outline btn-sm deposit-preset" data-pct="1.0">100% (Total)</button>
                   </div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;">
-                  <label class="form-label">Remaining Balance</label>
+                  <label class="form-label">Saldo pendiente</label>
                   <div id="order-balance" style="font-weight:700; font-size:1.15rem; color:#b45309; padding-top:0.4rem;">
                     $${Math.max(0, totalAmount - depositAmount).toFixed(2)}
                   </div>
@@ -352,9 +317,9 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline" id="btn-cancel-order">Cancel</button>
+            <button type="button" class="btn btn-outline" id="btn-cancel-order">Cancelar</button>
             <button type="button" class="btn btn-primary" id="btn-save-order">
-              💾 ${existingOrder ? 'Save Changes' : 'Create Order & Invoice'}
+              ${existingOrder ? 'Guardar cambios' : 'Crear pedido'}
             </button>
           </div>
         </div>
@@ -389,28 +354,27 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
       itemsContainer.innerHTML = orderItems.map((item, idx) => `
         <div class="order-item-row" data-idx="${idx}">
           <div>
-            <input type="text" class="form-control item-name" list="products-datalist" value="${escapeHtml(item.product_name)}" placeholder="Item name or select product..." />
+            <input type="text" class="form-control item-name" list="products-datalist" value="${escapeHtml(item.product_name)}" placeholder="Nombre del artículo o buscar producto..." />
             <datalist id="products-datalist">
               ${products.map(p => `<option value="${escapeHtml(p.name)}">$${p.price.toFixed(2)} (${p.category})</option>`).join('')}
             </datalist>
           </div>
           <div>
-            <input type="number" min="1" class="form-control item-qty" value="${item.quantity}" placeholder="Qty" />
+            <input type="number" min="1" class="form-control item-qty" value="${item.quantity}" placeholder="Cant." />
           </div>
           <div>
-            <input type="number" step="0.01" class="form-control item-price" value="${item.unit_price}" placeholder="Price" />
+            <input type="number" step="0.01" class="form-control item-price" value="${item.unit_price}" placeholder="Precio" />
           </div>
           <div style="font-weight:600; text-align:right;">
             $${(Number(item.subtotal) || 0).toFixed(2)}
           </div>
           <div>
-            <button type="button" class="btn btn-outline btn-sm item-remove" style="color:var(--danger); padding:0.25rem 0.5rem;" ${orderItems.length <= 1 ? 'disabled' : ''}>✕</button>
+            <button type="button" class="btn btn-outline btn-sm item-remove" style="color:var(--danger); padding:0.25rem 0.5rem;" ${orderItems.length <= 1 ? 'disabled' : ''}>&times;</button>
           </div>
         </div>
       `).join('');
       i18nService.apply(itemsContainer);
 
-      // Wire item inputs
       itemsContainer.querySelectorAll('.order-item-row').forEach(row => {
         const idx = Number(row.dataset.idx);
         const nameInp = row.querySelector('.item-name');
@@ -455,7 +419,7 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
 
     document.getElementById('btn-add-item').addEventListener('click', () => {
       orderItems.push({
-        product_name: 'Handcrafted Piece',
+        product_name: 'Mueble artesanal',
         quantity: 1,
         unit_price: 250,
         subtotal: 250
@@ -481,7 +445,7 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     document.getElementById('btn-save-order').addEventListener('click', async () => {
       const clientId = document.getElementById('order-client').value;
       if (!clientId) {
-        alert('Please select a client.');
+        alert('Por favor elegí un cliente.');
         return;
       }
 
@@ -499,12 +463,12 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
 
       try {
         await dataService.saveOrder(orderPayload);
-        window.showToast?.(existingOrder ? 'Order updated successfully' : 'New order created');
+        window.showToast?.(existingOrder ? 'Pedido actualizado' : 'Nuevo pedido creado');
         closeModal();
         loadData();
         if (onRefresh) onRefresh();
       } catch (err) {
-        alert('Error saving order: ' + err.message);
+        alert('Error al guardar el pedido: ' + err.message);
       }
     });
   };
@@ -512,32 +476,31 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
   const showPdfReceiptModal = (order, client, pdfDoc) => {
     const modalHtml = `
       <div class="modal-overlay" id="pdf-modal">
-        <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-content" style="max-width: 550px;">
           <div class="modal-header">
-            <div class="modal-title">🧾 Invoice & Receipt: REC-${String(order.id).padStart(5, '0')}</div>
+            <div class="modal-title">Factura y recibo REC-${String(order.id).padStart(5, '0')}</div>
             <button class="modal-close" id="close-pdf-modal">&times;</button>
           </div>
-          <div class="modal-body" style="text-align: center; padding: 2rem;">
-            <div style="font-size: 3rem; margin-bottom: 1rem;">📄</div>
-            <h3 style="margin-bottom: 0.5rem; color: var(--text-main);">Official Furniture Receipt Ready</h3>
+          <div class="modal-body" style="text-align: center; padding: 2rem 1.5rem;">
+            <h3 style="margin-bottom: 0.5rem; color: var(--text-main);">Recibo listo para ver o descargar</h3>
             <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.5rem;">
-              Client: <strong>${escapeHtml(client?.name || order.client_name || 'Walk-in Client')}</strong><br/>
-              Total: <strong>$${Number(order.total_amount).toFixed(2)}</strong> | Deposit: <strong>$${Number(order.deposit_amount).toFixed(2)}</strong> | Balance Due: <strong>$${Math.max(0, Number(order.total_amount) - Number(order.deposit_amount)).toFixed(2)}</strong>
+              Cliente: <strong>${escapeHtml(client?.name || order.client_name || 'Cliente de mostrador')}</strong><br/>
+              Total: <strong>$${Number(order.total_amount).toFixed(2)}</strong> | Anticipo: <strong>$${Number(order.deposit_amount).toFixed(2)}</strong> | Saldo: <strong>$${Math.max(0, Number(order.total_amount) - Number(order.deposit_amount)).toFixed(2)}</strong>
             </p>
             <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
-              <button id="btn-view-pdf" class="btn btn-outline" style="padding: 0.75rem 1.5rem;">
-                👁 Ver PDF
+              <button id="btn-view-pdf" class="btn btn-outline">
+                Ver PDF
               </button>
-              <button id="btn-download-pdf" class="btn btn-primary" style="padding: 0.75rem 1.5rem;">
-                📥 Descargar PDF
+              <button id="btn-download-pdf" class="btn btn-primary">
+                Descargar PDF
               </button>
-              <button id="btn-print-pdf" class="btn btn-outline" style="padding: 0.75rem 1.5rem;">
-                🖨 Imprimir
+              <button id="btn-print-pdf" class="btn btn-outline">
+                Imprimir
               </button>
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline" id="btn-close-pdf">Done</button>
+            <button type="button" class="btn btn-outline" id="btn-close-pdf">Cerrar</button>
           </div>
         </div>
       </div>
@@ -546,7 +509,6 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     const wrapper = document.createElement('div');
     wrapper.innerHTML = modalHtml;
     document.body.appendChild(wrapper);
-    i18nService.apply(wrapper);
     i18nService.apply(wrapper);
 
     const close = () => wrapper.remove();
@@ -569,11 +531,10 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
       runPdfAction(event.currentTarget, () => pdfDoc.open(), 'Abriendo la factura PDF...');
     });
     wrapper.querySelector('#btn-download-pdf').addEventListener('click', event => {
-      runPdfAction(event.currentTarget, () => pdfDoc.download(), 'Factura guardada en Descargas.');
+      runPdfAction(event.currentTarget, () => pdfDoc.download(), 'Factura guardada en Descargas');
     });
-
     wrapper.querySelector('#btn-print-pdf').addEventListener('click', event => {
-      runPdfAction(event.currentTarget, () => pdfDoc.print(), 'Se abrió el diálogo de impresión.');
+      runPdfAction(event.currentTarget, () => pdfDoc.print(), 'Se abrió el diálogo de impresión');
     });
   };
 

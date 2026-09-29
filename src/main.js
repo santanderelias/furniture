@@ -18,7 +18,7 @@ window.showToast = (message, duration = 3200) => {
 
   const toast = document.createElement('div');
   toast.className = 'toast';
-  toast.innerHTML = `<span>💬</span><span>${escapeHtml(i18nService.text(message))}</span>`;
+  toast.innerHTML = `<span>${escapeHtml(i18nService.text(message))}</span>`;
   container.appendChild(toast);
 
   setTimeout(() => {
@@ -50,7 +50,7 @@ export function navigateTo(viewName, params = {}) {
   });
 
   // Render View
-  mainView.innerHTML = '<div style="text-align:center; padding:3rem; color:var(--text-muted);">Loading view...</div>';
+  mainView.innerHTML = '<div style="text-align:center; padding:3rem; color:var(--text-muted);">Cargando vista...</div>';
 
   switch (viewName) {
     case 'dashboard':

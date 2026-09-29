@@ -7,15 +7,22 @@ export function renderProductsView(container, { onRefresh } = {}) {
   let activeCategory = 'All';
   let searchTerm = '';
 
-  const categories = ['All', 'Living Room', 'Dining Room', 'Bedroom', 'Office', 'Custom'];
+  const categories = [
+    { id: 'All', label: 'Todos' },
+    { id: 'Living Room', label: 'Living / Living Room' },
+    { id: 'Dining Room', label: 'Comedor' },
+    { id: 'Bedroom', label: 'Dormitorio' },
+    { id: 'Office', label: 'Oficina' },
+    { id: 'Custom', label: 'A medida' }
+  ];
 
   const loadData = async () => {
     try {
       products = await dataService.getProducts();
       render();
     } catch (err) {
-      console.error('Error loading products:', err);
-      container.innerHTML = `<div class="error-msg">Failed to load catalog: ${err.message}</div>`;
+      console.error('Error al cargar catálogo:', err);
+      container.innerHTML = `<div class="error-msg">Error al cargar el catálogo: ${err.message}</div>`;
     }
   };
 
@@ -33,22 +40,22 @@ export function renderProductsView(container, { onRefresh } = {}) {
     container.innerHTML = `
       <div class="section-header">
         <div class="section-title">
-          <span>🪑 Product Catalog & Furniture Pieces</span>
-          <span style="font-size:0.85rem; color:var(--text-muted); font-weight:normal;">(${filtered.length} items)</span>
+          <span>Catálogo de muebles</span>
+          <span class="section-count">(${filtered.length} productos)</span>
         </div>
         <div>
           <button id="btn-add-product" class="btn btn-primary">
-            ➕ Add Furniture Item
+            Agregar mueble
           </button>
         </div>
       </div>
 
       <div class="filter-bar">
-        <input type="text" id="product-search" class="search-input" placeholder="Search catalog by piece name or wood type..." value="${escapeHtml(searchTerm)}" />
+        <input type="text" id="product-search" class="search-input" placeholder="Buscar mueble o tipo de madera..." value="${escapeHtml(searchTerm)}" />
         <div class="filter-pills">
           ${categories.map(cat => `
-            <button class="filter-pill ${activeCategory === cat ? 'active' : ''}" data-cat="${cat}">
-              ${cat}
+            <button class="filter-pill ${activeCategory === cat.id ? 'active' : ''}" data-cat="${cat.id}">
+              ${cat.label}
             </button>
           `).join('')}
         </div>
@@ -56,19 +63,18 @@ export function renderProductsView(container, { onRefresh } = {}) {
 
       ${filtered.length === 0 ? `
         <div class="card-table-wrapper" style="padding: 2.5rem; text-align: center; color: var(--text-muted);">
-          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🪵</div>
-          <div style="font-weight: 600; margin-bottom: 0.25rem;">No products found in this category</div>
-          <div style="font-size: 0.85rem;">Add handcrafted products to your catalog to use in quotes and orders.</div>
+          <div style="font-weight: 600; margin-bottom: 0.25rem;">No se encontraron productos en esta categoría</div>
+          <div style="font-size: 0.85rem;">Agregá muebles al catálogo para usarlos en tus pedidos y presupuestos.</div>
         </div>
       ` : `
         <div class="grid-cards">
           ${filtered.map(item => `
-            <div class="item-card product-card" data-id="${item.id}" tabindex="0" aria-label="Edit product ${escapeHtml(item.name)}">
+            <div class="item-card product-card" data-id="${item.id}" tabindex="0" aria-label="Editar producto ${escapeHtml(item.name)}">
               <div>
                 <div class="item-card-header">
                   <div>
                     <div class="item-card-title">${escapeHtml(item.name)}</div>
-                    <span class="badge" style="background:#fef3c7; color:#92400e; margin-top:0.25rem;">
+                    <span class="badge" style="background:var(--primary-light); color:var(--primary-dark); margin-top:0.25rem;">
                       ${escapeHtml(item.category || 'General')}
                     </span>
                   </div>
@@ -76,13 +82,13 @@ export function renderProductsView(container, { onRefresh } = {}) {
                 </div>
 
                 <div style="margin-top: 0.5rem; font-size: 0.825rem; color: var(--text-muted); line-height: 1.4;">
-                  ${escapeHtml(item.description || 'Custom crafted solid wood piece.')}
+                  ${escapeHtml(item.description || 'Mueble artesanal de madera maciza.')}
                 </div>
 
                 ${showStock ? `
                   <div style="margin-top: 0.75rem; font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="color: ${item.stock > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: 600;">
-                      ${item.stock > 0 ? `● In Stock (${item.stock} ready)` : '○ Built to Order'}
+                    <span style="color: ${item.stock > 0 ? 'var(--success)' : 'var(--text-muted)'}; font-weight: 600;">
+                      ${item.stock > 0 ? `En stock (${item.stock} disponibles)` : 'Fabricación a pedido'}
                     </span>
                   </div>
                 ` : ''}
@@ -90,10 +96,10 @@ export function renderProductsView(container, { onRefresh } = {}) {
 
               <div class="item-card-actions">
                 <button class="btn btn-outline btn-sm btn-edit-product" data-id="${item.id}">
-                  ✏ Edit Piece
+                  Editar
                 </button>
                 <button class="btn btn-outline btn-sm btn-delete-product" data-id="${item.id}" style="color:var(--danger);">
-                  🗑 Delete
+                  Eliminar
                 </button>
               </div>
             </div>
@@ -103,7 +109,7 @@ export function renderProductsView(container, { onRefresh } = {}) {
     `;
     i18nService.apply(container);
 
-    // Listeners
+    // Event listeners
     container.querySelector('#btn-add-product')?.addEventListener('click', () => showProductModal());
 
     const searchInput = container.querySelector('#product-search');
@@ -125,7 +131,8 @@ export function renderProductsView(container, { onRefresh } = {}) {
     });
 
     container.querySelectorAll('.btn-edit-product').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.id);
         const item = products.find(p => Number(p.id) === id);
         if (item) showProductModal(item);
@@ -149,17 +156,18 @@ export function renderProductsView(container, { onRefresh } = {}) {
     });
 
     container.querySelectorAll('.btn-delete-product').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.id);
         const item = products.find(p => Number(p.id) === id);
-        if (confirm(`Delete piece "${item?.name}" from catalog?`)) {
+        if (confirm(`¿Estás seguro de que querés eliminar "${item?.name}" del catálogo?`)) {
           try {
             await dataService.deleteProduct(id);
-            window.showToast?.('Product deleted');
+            window.showToast?.('Producto eliminado');
             loadData();
             if (onRefresh) onRefresh();
           } catch (err) {
-            alert('Failed to delete product: ' + err.message);
+            alert('Error al eliminar producto: ' + err.message);
           }
         }
       });
@@ -171,45 +179,45 @@ export function renderProductsView(container, { onRefresh } = {}) {
       <div class="modal-overlay" id="product-modal">
         <div class="modal-content">
           <div class="modal-header">
-            <div class="modal-title">${existing ? 'Edit Furniture Piece' : 'Add New Furniture Product'}</div>
+            <div class="modal-title">${existing ? 'Editar mueble' : 'Agregar mueble al catálogo'}</div>
             <button class="modal-close" id="close-modal">&times;</button>
           </div>
           <div class="modal-body">
             <form id="product-form">
               <div class="form-group">
-                <label class="form-label">Piece Name *</label>
-                <input type="text" id="prod-name" class="form-control" value="${escapeHtml(existing?.name || '')}" placeholder="e.g. Modern White Oak Credenza" required />
+                <label class="form-label">Nombre del mueble *</label>
+                <input type="text" id="prod-name" class="form-control" value="${escapeHtml(existing?.name || '')}" placeholder="Ej. Vajillero en Guatambú y Paraíso" required />
               </div>
 
               <div class="form-row">
                 <div class="form-group">
-                  <label class="form-label">Category</label>
+                  <label class="form-label">Categoría</label>
                   <select id="prod-category" class="form-control">
-                    ${categories.filter(c => c !== 'All').map(c => `
-                      <option value="${c}" ${existing?.category === c ? 'selected' : ''}>${c}</option>
+                    ${categories.filter(c => c.id !== 'All').map(c => `
+                      <option value="${c.id}" ${existing?.category === c.id ? 'selected' : ''}>${c.label}</option>
                     `).join('')}
                   </select>
                 </div>
                 <div class="form-group">
-                  <label class="form-label">Base Price ($) *</label>
+                  <label class="form-label">Precio base ($) *</label>
                   <input type="number" step="0.01" id="prod-price" class="form-control" value="${existing?.price || ''}" placeholder="0.00" required />
                 </div>
                 <div class="form-group">
-                  <label class="form-label">Stock Ready</label>
+                  <label class="form-label">Unidades en stock</label>
                   <input type="number" id="prod-stock" class="form-control" value="${existing?.stock ?? 1}" min="0" />
                 </div>
               </div>
 
               <div class="form-group">
-                <label class="form-label">Dimensions, Wood Species & Finish Details</label>
-                <textarea id="prod-desc" class="form-control" rows="3" placeholder="e.g. Dimensions: 60W x 20D x 30H inches. Solid American walnut with matte water-based finish.">${escapeHtml(existing?.description || '')}</textarea>
+                <label class="form-label">Medidas, tipo de madera y acabado</label>
+                <textarea id="prod-desc" class="form-control" rows="3" placeholder="Ej. Medidas: 160 x 45 x 75 cm. Madera Paraíso lustrada al aceite mate.">${escapeHtml(existing?.description || '')}</textarea>
               </div>
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline" id="btn-cancel">Cancel</button>
+            <button type="button" class="btn btn-outline" id="btn-cancel">Cancelar</button>
             <button type="button" class="btn btn-primary" id="btn-save">
-              💾 ${existing ? 'Update Piece' : 'Save to Catalog'}
+              ${existing ? 'Guardar cambios' : 'Guardar producto'}
             </button>
           </div>
         </div>
@@ -230,7 +238,7 @@ export function renderProductsView(container, { onRefresh } = {}) {
       const price = Number(document.getElementById('prod-price').value);
 
       if (!name || isNaN(price)) {
-        alert('Piece name and a valid price are required.');
+        alert('El nombre y un precio válido son obligatorios.');
         return;
       }
 
@@ -247,12 +255,12 @@ export function renderProductsView(container, { onRefresh } = {}) {
           stock,
           description
         });
-        window.showToast?.(existing ? 'Product updated' : 'Piece added to catalog');
+        window.showToast?.(existing ? 'Producto actualizado' : 'Mueble agregado al catálogo');
         close();
         loadData();
         if (onRefresh) onRefresh();
       } catch (err) {
-        alert('Failed to save product: ' + err.message);
+        alert('Error al guardar el producto: ' + err.message);
       }
     });
   };
