@@ -1,0 +1,9 @@
+{
+  "appId": "com.furniture.app",
+  "appName": "Furniture Manager",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true,
+    "androidScheme": "http"
+  }
+}

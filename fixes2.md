@@ -1,0 +1,3 @@
+- write a bash build script (build.sh --debug || build.sh --prod)
+- change the main language to spanish and add a button in settings to make it english if the user wants.
+- downloading/printing/viewing invoices still not working. ideally the user should be able to configure elements of the invoice (phone number, tittle, layout, etc) add a small button to settings to do that.

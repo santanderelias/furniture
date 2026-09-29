@@ -1,0 +1,5 @@
+- Edit a client feature: clients get duplicated if saved on mobile, on browser client data is just deleted (blank entry)
+- Desktop server: if inactive should be hidden and just a little button to enable & show information should be available.
+- Layout: Mobile AND Desktop (Server) versions have layout issues, cards dont fit and information is not visible, also the app is sideways scrollable (happens when the user tries to "see" the hidden information) adjust the tables so all info is visible and adjust the body of the app so its not scrollable (as it scrolls all the page including all the body, content, nav bar, etc)
+- UX: when the user clicks on an order or client the "edit" function should execute.
+- Settings: add a settings button, for now add "show/hide" stock on catalog and other ocurrences, light/Dark mode
