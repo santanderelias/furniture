@@ -20,7 +20,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.Inet4Address;
@@ -241,6 +243,43 @@ public class LocalHttpService extends Service {
                     return jsonResponse(Response.Status.OK, stats.toString());
                 }
 
+                if (uri.equals("/api/export/database") && Method.GET.equals(method)) {
+                    File database = dbHelper.getDatabaseFile();
+                    ByteArrayOutputStream output = new ByteArrayOutputStream();
+                    try (FileInputStream input = new FileInputStream(database)) {
+                        byte[] buffer = new byte[8192];
+                        int count;
+                        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                    }
+                    byte[] bytes = output.toByteArray();
+                    Response response = newFixedLengthResponse(Response.Status.OK, "application/vnd.sqlite3", new ByteArrayInputStream(bytes), bytes.length);
+                    response.addHeader("Content-Disposition", "attachment; filename=\"furniture.db\"");
+                    return response;
+                }
+
+                // Record edit history shared by Android and desktop clients.
+                if (uri.matches("^/api/history/(client|order|product)/\\d+$")) {
+                    String[] parts = uri.split("/");
+                    String entityType = parts[3];
+                    long recordId = Long.parseLong(parts[4]);
+                    if (Method.GET.equals(method)) {
+                        JSONArray history = dbHelper.getRecordHistory(entityType, recordId);
+                        return jsonResponse(Response.Status.OK, history.toString());
+                    }
+                    if (Method.POST.equals(method)) {
+                        JSONObject body = new JSONObject(getRequestBody(session));
+                        JSONObject snapshot = body.optJSONObject("snapshot");
+                        if (snapshot == null) {
+                            return jsonResponse(Response.Status.BAD_REQUEST, "{\"error\":\"Snapshot is required\"}");
+                        }
+                        long revisionId = dbHelper.insertRecordRevision(entityType, recordId, snapshot.toString());
+                        JSONObject result = new JSONObject();
+                        result.put("id", revisionId);
+                        result.put("success", revisionId > 0);
+                        return jsonResponse(Response.Status.CREATED, result.toString());
+                    }
+                }
+
                 // --- CLIENTS API ---
                 // GET /api/clients
                 if (uri.equals("/api/clients") && Method.GET.equals(method)) {
@@ -319,8 +358,10 @@ public class LocalHttpService extends Service {
                     double totalAmount = json.optDouble("total_amount", 0.0);
                     double depositAmount = json.optDouble("deposit_amount", 0.0);
                     String itemsJson = json.optString("items_json", "[]");
+                    String createdAt = json.optString("created_at", "");
+                    String deliveryDate = json.isNull("delivery_date") ? "" : json.optString("delivery_date", "");
 
-                    long id = dbHelper.insertOrder(clientId, status, totalAmount, depositAmount, itemsJson);
+                    long id = dbHelper.insertOrder(clientId, status, totalAmount, depositAmount, itemsJson, createdAt, deliveryDate);
                     JSONObject res = new JSONObject();
                     res.put("id", id);
                     res.put("success", id > 0);
@@ -362,8 +403,12 @@ public class LocalHttpService extends Service {
                         double totalAmount = json.has("total_amount") ? json.optDouble("total_amount", 0.0) : existing.optDouble("total_amount", 0.0);
                         double depositAmount = json.has("deposit_amount") ? json.optDouble("deposit_amount", 0.0) : existing.optDouble("deposit_amount", 0.0);
                         String itemsJson = json.has("items_json") ? json.optString("items_json", "[]") : existing.optString("items_json", "[]");
+                        String createdAt = json.has("created_at") ? json.optString("created_at", "") : existing.optString("created_at", "");
+                        String deliveryDate = json.has("delivery_date")
+                            ? (json.isNull("delivery_date") ? "" : json.optString("delivery_date", ""))
+                            : (existing.isNull("delivery_date") ? "" : existing.optString("delivery_date", ""));
 
-                        boolean ok = dbHelper.updateOrder(id, clientId, status, totalAmount, depositAmount, itemsJson);
+                        boolean ok = dbHelper.updateOrder(id, clientId, status, totalAmount, depositAmount, itemsJson, createdAt, deliveryDate);
                         JSONObject res = new JSONObject();
                         res.put("success", ok);
                         return jsonResponse(Response.Status.OK, res.toString());

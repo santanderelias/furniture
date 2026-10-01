@@ -87,6 +87,27 @@ export const dataService = {
     return await plugin.printInvoice({ base64, fileName });
   },
 
+  async exportDatabase() {
+    const plugin = getPlugin();
+    if (isNativePlatform() && plugin?.exportDatabase) {
+      const result = await plugin.exportDatabase();
+      if (!result?.base64) throw new Error('The SQLite database export was empty.');
+      const bytes = Uint8Array.from(atob(result.base64), character => character.charCodeAt(0));
+      return new Blob([bytes], { type: 'application/vnd.sqlite3' });
+    }
+    const res = await fetch(`${getApiBase()}/api/export/database`);
+    if (!res.ok) throw new Error('Raw SQLite export is available from the Android embedded server.');
+    return await res.blob();
+  },
+
+  async downloadExport(base64, fileName, mimeType) {
+    const plugin = getPlugin();
+    if (!isNativePlatform() || !plugin?.downloadExport) return null;
+    const result = await plugin.downloadExport({ base64, fileName, mimeType });
+    if (result?.success === false) throw new Error('Android could not save the export.');
+    return result;
+  },
+
   // --- STATS ---
 
   async getStats() {
@@ -100,6 +121,39 @@ export const dataService = {
     }
     const res = await fetch(`${getApiBase()}/api/stats`);
     if (!res.ok) throw new Error('Failed to fetch stats');
+    return await res.json();
+  },
+
+  async getRecordHistory(entityType, recordId) {
+    const plugin = getPlugin();
+    if (isNativePlatform() && plugin?.getRecordHistory) {
+      const result = await plugin.getRecordHistory({ entityType, recordId: Number(recordId) });
+      return (result.history || []).map(revision => ({
+        timestamp: revision.created_at,
+        snapshot: JSON.parse(revision.snapshot_json)
+      }));
+    }
+    const res = await fetch(`${getApiBase()}/api/history/${entityType}/${recordId}`);
+    if (!res.ok) throw new Error('Failed to fetch record history');
+    return (await res.json()).map(revision => ({
+      timestamp: revision.created_at,
+      snapshot: JSON.parse(revision.snapshot_json)
+    }));
+  },
+
+  async recordRevision(entityType, recordId, snapshot) {
+    const plugin = getPlugin();
+    if (isNativePlatform() && plugin?.recordRevision) {
+      const result = await plugin.recordRevision({ entityType, recordId: Number(recordId), snapshot });
+      if (result?.success === false) throw new Error('Could not save record history');
+      return result;
+    }
+    const res = await fetch(`${getApiBase()}/api/history/${entityType}/${recordId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshot })
+    });
+    if (!res.ok) throw new Error('Failed to save record history');
     return await res.json();
   },
 
@@ -215,6 +269,8 @@ export const dataService = {
       status: orderData.status || 'Pending',
       total_amount: Number(orderData.total_amount) || 0,
       deposit_amount: Number(orderData.deposit_amount) || 0,
+      created_at: orderData.created_at || '',
+      delivery_date: orderData.delivery_date || '',
       items_json: typeof orderData.items === 'string' ? orderData.items : JSON.stringify(orderData.items || [])
     };
 

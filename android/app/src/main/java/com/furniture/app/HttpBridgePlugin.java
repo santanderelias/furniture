@@ -33,6 +33,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 
 @CapacitorPlugin(name = "HttpBridge")
@@ -95,40 +96,29 @@ public class HttpBridgePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void exportDatabase(PluginCall call) {
+        try {
+            File database = dbHelper.getDatabaseFile();
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (FileInputStream input = new FileInputStream(database)) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) bytes.write(buffer, 0, count);
+            }
+            JSObject result = new JSObject();
+            result.put("base64", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Could not export the SQLite database: " + e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
     public void downloadInvoice(PluginCall call) {
         try {
             byte[] pdfBytes = decodeInvoice(call);
             String fileName = safeInvoiceName(call.getString("fileName", "invoice.pdf"));
-            Uri savedUri;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
-                values.put(MediaStore.Downloads.MIME_TYPE, "application/pdf");
-                values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Furniture Manager");
-                values.put(MediaStore.Downloads.IS_PENDING, 1);
-                Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-                savedUri = getContext().getContentResolver().insert(collection, values);
-                if (savedUri == null) throw new IllegalStateException("Android could not create the PDF in Downloads.");
-                try (OutputStream output = getContext().getContentResolver().openOutputStream(savedUri)) {
-                    if (output == null) throw new IllegalStateException("Could not open the downloaded PDF.");
-                    output.write(pdfBytes);
-                } catch (Exception e) {
-                    getContext().getContentResolver().delete(savedUri, null, null);
-                    throw e;
-                }
-                ContentValues ready = new ContentValues();
-                ready.put(MediaStore.Downloads.IS_PENDING, 0);
-                getContext().getContentResolver().update(savedUri, ready, null, null);
-            } else {
-                File downloads = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-                if (downloads == null) downloads = getContext().getCacheDir();
-                if (!downloads.exists() && !downloads.mkdirs()) throw new IllegalStateException("Could not create the download folder.");
-                File outputFile = new File(downloads, fileName);
-                try (FileOutputStream output = new FileOutputStream(outputFile)) {
-                    output.write(pdfBytes);
-                }
-                savedUri = Uri.fromFile(outputFile);
-            }
+            Uri savedUri = saveToDownloads(pdfBytes, fileName, "application/pdf");
             JSObject result = new JSObject();
             result.put("success", true);
             result.put("uri", savedUri.toString());
@@ -137,6 +127,58 @@ public class HttpBridgePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Could not save invoice PDF: " + e.getMessage(), e);
         }
+    }
+
+    @PluginMethod
+    public void downloadExport(PluginCall call) {
+        try {
+            String encoded = call.getString("base64", "");
+            if (encoded == null || encoded.isEmpty()) throw new IllegalArgumentException("Export data is empty.");
+            byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
+            String fileName = safeExportName(call.getString("fileName", "furniture-export.bin"));
+            String mimeType = call.getString("mimeType", "application/octet-stream");
+            Uri savedUri = saveToDownloads(bytes, fileName, mimeType);
+            JSObject result = new JSObject();
+            result.put("success", true);
+            result.put("uri", savedUri.toString());
+            result.put("fileName", fileName);
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Could not save the export: " + e.getMessage(), e);
+        }
+    }
+
+    private Uri saveToDownloads(byte[] bytes, String fileName, String mimeType) throws Exception {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+            values.put(MediaStore.Downloads.MIME_TYPE, mimeType);
+            values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Furniture Manager");
+            values.put(MediaStore.Downloads.IS_PENDING, 1);
+            Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+            Uri savedUri = getContext().getContentResolver().insert(collection, values);
+            if (savedUri == null) throw new IllegalStateException("Android could not create the export in Downloads.");
+            try (OutputStream output = getContext().getContentResolver().openOutputStream(savedUri)) {
+                if (output == null) throw new IllegalStateException("Could not open the exported file.");
+                output.write(bytes);
+            } catch (Exception e) {
+                getContext().getContentResolver().delete(savedUri, null, null);
+                throw e;
+            }
+            ContentValues ready = new ContentValues();
+            ready.put(MediaStore.Downloads.IS_PENDING, 0);
+            getContext().getContentResolver().update(savedUri, ready, null, null);
+            return savedUri;
+        }
+
+        File downloads = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (downloads == null) downloads = getContext().getCacheDir();
+        if (!downloads.exists() && !downloads.mkdirs()) throw new IllegalStateException("Could not create the download folder.");
+        File outputFile = new File(downloads, fileName);
+        try (FileOutputStream output = new FileOutputStream(outputFile)) {
+            output.write(bytes);
+        }
+        return Uri.fromFile(outputFile);
     }
 
     @PluginMethod
@@ -184,6 +226,11 @@ public class HttpBridgePlugin extends Plugin {
         String safe = name == null ? "invoice.pdf" : name.replaceAll("[^A-Za-z0-9._-]", "_");
         if (!safe.toLowerCase().endsWith(".pdf")) safe += ".pdf";
         return safe;
+    }
+
+    private String safeExportName(String name) {
+        String safe = name == null ? "furniture-export.bin" : name.replaceAll("[^A-Za-z0-9._-]", "_");
+        return safe.isEmpty() ? "furniture-export.bin" : safe;
     }
 
     private File writeInvoiceToCache(PluginCall call) throws Exception {
@@ -334,14 +381,16 @@ public class HttpBridgePlugin extends Plugin {
             double totalAmount = call.getDouble("total_amount", 0.0);
             double depositAmount = call.getDouble("deposit_amount", 0.0);
             String itemsJson = call.getString("items_json", "[]");
+            String createdAt = call.getString("created_at", "");
+            String deliveryDate = call.getString("delivery_date", "");
 
             JSObject ret = new JSObject();
             if (id == null || id <= 0) {
-                long newId = dbHelper.insertOrder(clientId, status, totalAmount, depositAmount, itemsJson);
+                long newId = dbHelper.insertOrder(clientId, status, totalAmount, depositAmount, itemsJson, createdAt, deliveryDate);
                 ret.put("id", newId);
                 ret.put("success", newId > 0);
             } else {
-                boolean ok = dbHelper.updateOrder(id, clientId, status, totalAmount, depositAmount, itemsJson);
+                boolean ok = dbHelper.updateOrder(id, clientId, status, totalAmount, depositAmount, itemsJson, createdAt, deliveryDate);
                 ret.put("id", id);
                 ret.put("success", ok);
             }
@@ -429,6 +478,48 @@ public class HttpBridgePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Error deleting product: " + e.getMessage(), e);
         }
+    }
+
+    @PluginMethod
+    public void getRecordHistory(PluginCall call) {
+        try {
+            String entityType = call.getString("entityType", "");
+            long recordId = requireId(call, "recordId");
+            if (!isValidHistoryType(entityType) || recordId <= 0) {
+                call.reject("Invalid record history request.");
+                return;
+            }
+            JSONArray history = dbHelper.getRecordHistory(entityType, recordId);
+            JSObject result = new JSObject();
+            result.put("history", new JSArray(history.toString()));
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Error fetching record history: " + e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
+    public void recordRevision(PluginCall call) {
+        try {
+            String entityType = call.getString("entityType", "");
+            long recordId = requireId(call, "recordId");
+            JSONObject snapshot = call.getData().optJSONObject("snapshot");
+            if (!isValidHistoryType(entityType) || recordId <= 0 || snapshot == null) {
+                call.reject("Invalid record revision.");
+                return;
+            }
+            long revisionId = dbHelper.insertRecordRevision(entityType, recordId, snapshot.toString());
+            JSObject result = new JSObject();
+            result.put("success", revisionId > 0);
+            result.put("id", revisionId);
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Error saving record revision: " + e.getMessage(), e);
+        }
+    }
+
+    private boolean isValidHistoryType(String entityType) {
+        return "client".equals(entityType) || "order".equals(entityType) || "product".equals(entityType);
     }
 
     // --- STATS DB OPERATIONS ---

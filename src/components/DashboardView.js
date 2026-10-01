@@ -2,6 +2,7 @@ import { dataService } from '../services/dataService.js';
 import { generatePdfReceipt } from '../services/pdfService.js';
 import { renderDesktopBanner } from './DesktopBanner.js';
 import { i18nService } from '../services/i18nService.js';
+import { formatDate, formatMoney, sortOrders } from '../services/formatService.js';
 
 export function renderDashboardView(container, { onNavigate, onRefresh } = {}) {
   let stats = null;
@@ -25,7 +26,7 @@ export function renderDashboardView(container, { onNavigate, onRefresh } = {}) {
   const render = () => {
     const rev = Number(stats?.totalRevenue) || 0;
     const bal = Number(stats?.pendingBalance) || 0;
-    const ordersSlice = (recentOrders || []).slice(0, 5);
+    const ordersSlice = sortOrders(recentOrders || [], 'added').slice(0, 5);
 
     container.innerHTML = `
       <!-- Banner de acceso remoto -->
@@ -36,14 +37,14 @@ export function renderDashboardView(container, { onNavigate, onRefresh } = {}) {
         <div class="metric-card">
           <div class="metric-info">
             <span class="metric-label">Ingresos totales</span>
-            <span class="metric-value">$${rev.toFixed(2)}</span>
+            <span class="metric-value">${formatMoney(rev)}</span>
           </div>
         </div>
 
         <div class="metric-card">
           <div class="metric-info">
             <span class="metric-label">Saldo pendiente</span>
-            <span class="metric-value text-danger">$${bal.toFixed(2)}</span>
+            <span class="metric-value text-danger">${formatMoney(bal)}</span>
           </div>
         </div>
 
@@ -97,59 +98,40 @@ export function renderDashboardView(container, { onNavigate, onRefresh } = {}) {
           Todavía no hay pedidos registrados. Hacé clic en "Nuevo pedido" para crear el primero.
         </div>
       ` : `
-        <div class="card-table-wrapper">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>N.º pedido</th>
-                <th>Cliente</th>
-                <th>Estado</th>
-                <th>Total</th>
-                <th>Saldo</th>
-                <th style="text-align:center;">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${ordersSlice.map(o => {
-                const badge = o.status === 'Delivered' ? 'badge-delivered' : o.status === 'In Production' ? 'badge-production' : 'badge-pending';
-                const statusText = o.status === 'Delivered' ? 'Entregado' : o.status === 'In Production' ? 'En fabricación' : 'Pendiente';
-                const itemsPreview = (o.items || []).map(i => `${i.quantity}x ${i.product_name}`).join(', ') || 'Mueble personalizado';
-                const b = Math.max(0, (Number(o.total_amount) || 0) - (Number(o.deposit_amount) || 0));
+        <div class="order-card-list recent-order-card-list">
+          ${ordersSlice.map(o => {
+            const badge = o.status === 'Delivered' ? 'badge-delivered' : o.status === 'In Production' ? 'badge-production' : 'badge-pending';
+            const statusText = o.status === 'Delivered' ? 'Entregado' : o.status === 'In Production' ? 'En fabricación' : 'Pendiente';
+            const itemsPreview = (o.items || []).map(i => `${i.quantity}x ${i.product_name}`).join(', ') || 'Mueble personalizado';
+            const balance = Math.max(0, (Number(o.total_amount) || 0) - (Number(o.deposit_amount) || 0));
 
-                return `
-                  <tr class="clickable-row order-main-row" data-id="${o.id}" tabindex="0" aria-label="Editar pedido ${o.id}">
-                    <td data-label="N.º pedido"><strong>#${String(o.id).padStart(4, '0')}</strong></td>
-                    <td data-label="Cliente">
-                      <div class="row-title">${escapeHtml(o.client_name || 'Cliente de mostrador')}</div>
-                      <div class="row-subtitle">${escapeHtml(o.client_phone || '')}</div>
-                    </td>
-                    <td data-label="Estado"><span class="badge ${badge}">${statusText}</span></td>
-                    <td data-label="Total" class="num-cell"><strong>$${Number(o.total_amount).toFixed(2)}</strong></td>
-                    <td data-label="Saldo" class="num-cell ${b > 0 ? 'text-warning' : 'text-success'}">
-                      <strong>$${b.toFixed(2)}</strong>
-                    </td>
-                    <td data-label="Acciones" class="actions-cell">
-                      <div class="action-buttons">
-                        <button class="btn btn-outline btn-sm btn-quick-receipt" data-id="${o.id}">
-                          Recibo PDF
-                        </button>
-                        <button class="btn btn-outline btn-sm btn-open-order" data-id="${o.id}">
-                          Editar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  <tr class="order-sub-row" data-id="${o.id}">
-                    <td colspan="6">
-                      <div class="sub-row-content">
-                        <span class="sub-row-label">Detalle:</span> ${escapeHtml(itemsPreview)}
-                      </div>
-                    </td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
+            return `
+              <article class="order-card recent-order-card clickable-row" data-id="${o.id}" tabindex="0" aria-label="${i18nService.getLanguage() === 'en' ? `Edit order #${o.id}` : `Editar pedido #${o.id}`} ">
+                <div class="order-card-heading">
+                  <div>
+                    <div class="order-card-number">#${String(o.id).padStart(4, '0')}</div>
+                    <div class="row-title">${escapeHtml(o.client_name || 'Cliente de mostrador')}</div>
+                    <div class="row-subtitle">${escapeHtml(o.client_phone || '')}</div>
+                    ${o.client_address ? `<div class="row-subtitle order-card-address">${escapeHtml(o.client_address)}</div>` : ''}
+                  </div>
+                  <span class="badge ${badge}">${statusText}</span>
+                </div>
+                <div class="order-card-dates">
+                  <div><span>Fecha del pedido</span><time>${formatDate(o.created_at)}</time></div>
+                  <div><span>Fecha de entrega</span><time>${formatDate(o.delivery_date)}</time></div>
+                </div>
+                <div class="order-card-totals">
+                  <div><span>Total</span><strong>${formatMoney(o.total_amount)}</strong></div>
+                  <div><span>Saldo</span><strong class="${balance > 0 ? 'text-warning' : 'text-success'}">${formatMoney(balance)}</strong></div>
+                </div>
+                <div class="order-card-items"><strong>Detalle:</strong><span>${escapeHtml(itemsPreview)}</span></div>
+                <div class="action-buttons order-card-actions">
+                  <button class="btn btn-outline btn-sm btn-quick-receipt" data-id="${o.id}">Recibo PDF</button>
+                  <button class="btn btn-outline btn-sm btn-open-order" data-id="${o.id}">Editar</button>
+                </div>
+              </article>
+            `;
+          }).join('')}
         </div>
       `}
     `;

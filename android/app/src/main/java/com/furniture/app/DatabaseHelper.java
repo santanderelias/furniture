@@ -12,12 +12,15 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public class DatabaseHelper extends SQLiteOpenHelper {
 
     private static final String TAG = "DatabaseHelper";
     private static final String DATABASE_NAME = "furniture.db";
-    private static final int DATABASE_VERSION = 1;
+    private static final int DATABASE_VERSION = 4;
 
     private static DatabaseHelper instance;
 
@@ -31,6 +34,14 @@ public class DatabaseHelper extends SQLiteOpenHelper {
     public DatabaseHelper(Context context) {
         // Physical SQLite database stored locally at context.getFilesDir() + "/furniture.db"
         super(context, new File(context.getFilesDir(), DATABASE_NAME).getAbsolutePath(), null, DATABASE_VERSION);
+    }
+
+    public File getDatabaseFile() {
+        SQLiteDatabase db = getWritableDatabase();
+        Cursor checkpoint = db.rawQuery("PRAGMA wal_checkpoint(FULL)", null);
+        checkpoint.moveToFirst();
+        checkpoint.close();
+        return new File(db.getPath());
     }
 
     @Override
@@ -62,6 +73,9 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                 "deposit_amount REAL, " +
                 "items_json TEXT, " +
                 "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "delivery_date TEXT, " +
+                "added_at TIMESTAMP, " +
+                "updated_at TIMESTAMP, " +
                 "FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE SET NULL" +
                 ");");
 
@@ -76,13 +90,32 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                 "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
                 ");");
 
+            createRecordHistoryTable(db);
+
         // Seed initial furniture business data
         seedInitialData(db);
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // Handle migrations if schema version increments
+        if (oldVersion < 2) createRecordHistoryTable(db);
+        if (oldVersion < 3) db.execSQL("ALTER TABLE orders ADD COLUMN delivery_date TEXT");
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE orders ADD COLUMN added_at TIMESTAMP");
+            db.execSQL("ALTER TABLE orders ADD COLUMN updated_at TIMESTAMP");
+            db.execSQL("UPDATE orders SET added_at = created_at, updated_at = created_at");
+        }
+    }
+
+    private void createRecordHistoryTable(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS record_history (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "entity_type TEXT NOT NULL, " +
+                "record_id INTEGER NOT NULL, " +
+                "snapshot_json TEXT NOT NULL, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                ");");
+        db.execSQL("CREATE INDEX IF NOT EXISTS record_history_lookup ON record_history(entity_type, record_id, id DESC)");
     }
 
     private void seedInitialData(SQLiteDatabase db) {
@@ -108,6 +141,8 @@ public class DatabaseHelper extends SQLiteOpenHelper {
             String itemsOrder3 = "[{\"product_name\":\"King Teak Platform Bed Frame\",\"quantity\":1,\"unit_price\":1400.00,\"subtotal\":1400.00}]";
 
             ContentValues cv1 = new ContentValues();
+            cv1.put("added_at", currentTimestamp());
+            cv1.put("updated_at", currentTimestamp());
             cv1.put("client_id", 1);
             cv1.put("status", "In Production");
             cv1.put("total_amount", 1130.00);
@@ -116,6 +151,8 @@ public class DatabaseHelper extends SQLiteOpenHelper {
             db.insert("orders", null, cv1);
 
             ContentValues cv2 = new ContentValues();
+            cv2.put("added_at", currentTimestamp());
+            cv2.put("updated_at", currentTimestamp());
             cv2.put("client_id", 2);
             cv2.put("status", "Delivered");
             cv2.put("total_amount", 1280.00);
@@ -124,6 +161,8 @@ public class DatabaseHelper extends SQLiteOpenHelper {
             db.insert("orders", null, cv2);
 
             ContentValues cv3 = new ContentValues();
+            cv3.put("added_at", currentTimestamp());
+            cv3.put("updated_at", currentTimestamp());
             cv3.put("client_id", 3);
             cv3.put("status", "Pending");
             cv3.put("total_amount", 1400.00);
@@ -186,8 +225,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         SQLiteDatabase db = getReadableDatabase();
         String query = "SELECT o.*, c.name AS client_name, c.phone AS client_phone, c.address AS client_address " +
                 "FROM orders o " +
-                "LEFT JOIN clients c ON o.client_id = c.id " +
-                "ORDER BY o.id DESC";
+            "LEFT JOIN clients c ON o.client_id = c.id";
         Cursor cursor = db.rawQuery(query, null);
         JSONArray result = cursorToJsonArray(cursor);
         cursor.close();
@@ -206,7 +244,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         return result;
     }
 
-    public long insertOrder(long clientId, String status, double totalAmount, double depositAmount, String itemsJson) {
+    public long insertOrder(long clientId, String status, double totalAmount, double depositAmount, String itemsJson, String createdAt, String deliveryDate) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
         if (clientId > 0) {
@@ -216,10 +254,15 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         cv.put("total_amount", totalAmount);
         cv.put("deposit_amount", depositAmount);
         cv.put("items_json", itemsJson);
+        if (createdAt != null && !createdAt.trim().isEmpty()) cv.put("created_at", createdAt);
+        if (deliveryDate == null || deliveryDate.trim().isEmpty()) cv.putNull("delivery_date");
+        else cv.put("delivery_date", deliveryDate);
+        cv.put("added_at", currentTimestamp());
+        cv.put("updated_at", currentTimestamp());
         return db.insert("orders", null, cv);
     }
 
-    public boolean updateOrder(long id, long clientId, String status, double totalAmount, double depositAmount, String itemsJson) {
+    public boolean updateOrder(long id, long clientId, String status, double totalAmount, double depositAmount, String itemsJson, String createdAt, String deliveryDate) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
         if (clientId > 0) {
@@ -233,6 +276,10 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         if (itemsJson != null) {
             cv.put("items_json", itemsJson);
         }
+        if (createdAt != null && !createdAt.trim().isEmpty()) cv.put("created_at", createdAt);
+        if (deliveryDate == null || deliveryDate.trim().isEmpty()) cv.putNull("delivery_date");
+        else cv.put("delivery_date", deliveryDate);
+        cv.put("updated_at", currentTimestamp());
         return db.update("orders", cv, "id = ?", new String[]{String.valueOf(id)}) > 0;
     }
 
@@ -240,12 +287,17 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
         cv.put("status", status);
+        cv.put("updated_at", currentTimestamp());
         return db.update("orders", cv, "id = ?", new String[]{String.valueOf(id)}) > 0;
     }
 
     public boolean deleteOrder(long id) {
         SQLiteDatabase db = getWritableDatabase();
         return db.delete("orders", "id = ?", new String[]{String.valueOf(id)}) > 0;
+    }
+
+    private String currentTimestamp() {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
     }
 
     // --- PRODUCTS CRUD ---
@@ -361,6 +413,29 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         JSONArray result = cursorToJsonArray(cursor);
         cursor.close();
         return result;
+    }
+
+    public JSONArray getRecordHistory(String entityType, long recordId) {
+        SQLiteDatabase db = getReadableDatabase();
+        Cursor cursor = db.rawQuery("SELECT id, entity_type, record_id, snapshot_json, created_at " +
+                "FROM record_history WHERE entity_type = ? AND record_id = ? ORDER BY id DESC LIMIT 50",
+                new String[]{entityType, String.valueOf(recordId)});
+        JSONArray result = cursorToJsonArray(cursor);
+        cursor.close();
+        return result;
+    }
+
+    public long insertRecordRevision(String entityType, long recordId, String snapshotJson) {
+        SQLiteDatabase db = getWritableDatabase();
+        ContentValues values = new ContentValues();
+        values.put("entity_type", entityType);
+        values.put("record_id", recordId);
+        values.put("snapshot_json", snapshotJson);
+        long revisionId = db.insert("record_history", null, values);
+        db.execSQL("DELETE FROM record_history WHERE entity_type = ? AND record_id = ? " +
+                        "AND id NOT IN (SELECT id FROM record_history WHERE entity_type = ? AND record_id = ? ORDER BY id DESC LIMIT 50)",
+                new Object[]{entityType, recordId, entityType, recordId});
+        return revisionId;
     }
 
     // --- UTILITIES ---

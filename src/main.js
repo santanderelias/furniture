@@ -39,6 +39,8 @@ function escapeHtml(str) {
 // Navigation Controller
 export function navigateTo(viewName, params = {}) {
   currentView = viewName;
+  const quickActions = document.querySelector('.quick-actions-fab');
+  if (quickActions) quickActions.hidden = viewName !== 'dashboard';
 
   // Update Nav Tab UI
   navButtons.forEach(btn => {
@@ -63,12 +65,14 @@ export function navigateTo(viewName, params = {}) {
       renderOrdersView(mainView, {
         onRefresh: () => {},
         openNewOrder: params.openNewOrder,
-        openOrderId: params.openOrderId
+        openOrderId: params.openOrderId,
+        clientId: params.clientId
       });
       break;
     case 'clients':
       renderClientsView(mainView, {
         onRefresh: () => {},
+        openNewClient: params.openNewClient,
         onSelectClientForOrder: (clientId) => {
           navigateTo('orders', { openNewOrder: true, clientId });
         }
@@ -76,16 +80,53 @@ export function navigateTo(viewName, params = {}) {
       break;
     case 'products':
       renderProductsView(mainView, {
-        onRefresh: () => {}
+        onRefresh: () => {},
+        openNewProduct: params.openNewProduct
       });
       break;
     case 'settings':
-      renderSettingsView(mainView);
+      renderSettingsView(mainView, { openExport: params.openExport });
       break;
     default:
       renderDashboardView(mainView, { onNavigate: navigateTo });
       break;
   }
+}
+
+function mountQuickActions() {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'quick-actions-fab';
+  wrapper.innerHTML = `
+    <div class="quick-actions-menu" id="quick-actions-menu" role="menu" hidden>
+      <button type="button" role="menuitem" data-action="order">Nuevo pedido</button>
+      <button type="button" role="menuitem" data-action="client">Nuevo cliente</button>
+      <button type="button" role="menuitem" data-action="product">Nuevo producto</button>
+    </div>
+    <button type="button" class="quick-actions-toggle" id="quick-actions-toggle" aria-label="Acciones rápidas" aria-expanded="false">+</button>
+  `;
+  document.body.appendChild(wrapper);
+  i18nService.apply(wrapper);
+
+  const toggle = wrapper.querySelector('#quick-actions-toggle');
+  const menu = wrapper.querySelector('#quick-actions-menu');
+  toggle.addEventListener('click', () => {
+    menu.hidden = !menu.hidden;
+    toggle.setAttribute('aria-expanded', String(!menu.hidden));
+  });
+  wrapper.addEventListener('click', event => {
+    const action = event.target.closest('[data-action]')?.dataset.action;
+    if (!action) return;
+    menu.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    if (action === 'order') navigateTo('orders', { openNewOrder: true });
+    if (action === 'client') navigateTo('clients', { openNewClient: true });
+    if (action === 'product') navigateTo('products', { openNewProduct: true });
+  });
+  document.addEventListener('pointerdown', event => {
+    if (wrapper.contains(event.target)) return;
+    menu.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+  });
 }
 
 // Initialize Application
@@ -103,6 +144,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (view) navigateTo(view);
     });
   });
+
+  mountQuickActions();
 
   // Initial render
   navigateTo('dashboard');

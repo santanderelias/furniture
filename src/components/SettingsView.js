@@ -1,8 +1,10 @@
 import { settingsService } from '../services/settingsService.js';
 import { dataService, isNativePlatform } from '../services/dataService.js';
 import { i18nService } from '../services/i18nService.js';
+import { generatePdfReceipt } from '../services/pdfService.js';
+import { exportOperations } from '../services/exportService.js';
 
-export function renderSettingsView(container, { onRefresh } = {}) {
+export function renderSettingsView(container, { onRefresh, openExport = false } = {}) {
   const isNative = isNativePlatform();
 
   const loadView = async () => {
@@ -53,6 +55,12 @@ export function renderSettingsView(container, { onRefresh } = {}) {
             Personalizá los datos de tu taller, impuestos, moneda, términos de garantía y formato del PDF.
           </p>
           <button id="invoice-config-btn" class="btn btn-primary btn-sm">Configurar datos de factura</button>
+        </div>
+
+        <div class="card-table-wrapper" style="padding: 1.25rem;">
+          <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.35rem;">Exportación de datos</h3>
+          <p style="font-size:0.825rem; color:var(--text-muted); margin-bottom:0.85rem;">Exportá una copia completa o una plantilla vacía de las operaciones.</p>
+          <button id="export-data-btn" class="btn btn-outline btn-sm">Exportar datos</button>
         </div>
 
         <!-- Opciones de catálogo -->
@@ -128,6 +136,7 @@ export function renderSettingsView(container, { onRefresh } = {}) {
     });
 
     container.querySelector('#invoice-config-btn')?.addEventListener('click', showInvoiceSettings);
+    container.querySelector('#export-data-btn')?.addEventListener('click', showExportModal);
     container.querySelector('#theme-light-btn')?.addEventListener('click', () => {
       settingsService.setSetting('theme', 'light');
       window.showToast?.('Tema claro activado');
@@ -147,6 +156,11 @@ export function renderSettingsView(container, { onRefresh } = {}) {
       window.showToast?.(`Stock ${val ? 'visible' : 'oculto'} en el catálogo`);
       loadView();
     });
+
+    if (openExport) {
+      openExport = false;
+      showExportModal();
+    }
   };
 
   function showInvoiceSettings() {
@@ -158,7 +172,9 @@ export function renderSettingsView(container, { onRefresh } = {}) {
         <div class="modal-content" style="max-width:620px;">
           <div class="modal-header">
             <div class="modal-title">Configuración de la factura</div>
-            <button class="modal-close" id="close-invoice-settings">&times;</button>
+            <div class="modal-header-actions">
+              <button class="modal-close" id="close-invoice-settings" aria-label="Cerrar">&times;</button>
+            </div>
           </div>
           <div class="modal-body">
             <form id="invoice-settings-form">
@@ -241,6 +257,7 @@ export function renderSettingsView(container, { onRefresh } = {}) {
             </form>
           </div>
           <div class="modal-footer">
+            <button class="btn btn-outline" id="preview-invoice-settings" type="button">Vista previa / Preview</button>
             <button class="btn btn-outline" id="cancel-invoice-settings" type="button">Cancelar</button>
             <button class="btn btn-primary" id="save-invoice-settings" type="button">Guardar cambios</button>
           </div>
@@ -252,6 +269,76 @@ export function renderSettingsView(container, { onRefresh } = {}) {
     const close = () => wrapper.remove();
     wrapper.querySelector('#close-invoice-settings').addEventListener('click', close);
     wrapper.querySelector('#cancel-invoice-settings').addEventListener('click', close);
+    wrapper.querySelector('#preview-invoice-settings').addEventListener('click', async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const draftSettings = {
+          ...settings,
+          workshopName: wrapper.querySelector('#invoice-workshop-name').value.trim(),
+          currency: wrapper.querySelector('#invoice-currency').value.trim() || '$',
+          taxRate: Number(wrapper.querySelector('#invoice-tax').value) || 0,
+          invoice: {
+            ...invoice,
+            title: wrapper.querySelector('#invoice-title').value.trim(),
+            phone: wrapper.querySelector('#invoice-phone').value.trim(),
+            email: wrapper.querySelector('#invoice-email').value.trim(),
+            subtitle: wrapper.querySelector('#invoice-subtitle').value.trim(),
+            address: wrapper.querySelector('#invoice-address').value.trim(),
+            pageSize: wrapper.querySelector('#invoice-page-size').value,
+            orientation: wrapper.querySelector('#invoice-orientation').value,
+            layout: wrapper.querySelector('#invoice-layout').value,
+            terms: wrapper.querySelector('#invoice-terms').value.trim(),
+            footer: wrapper.querySelector('#invoice-footer').value.trim()
+          }
+        };
+        const sampleOrder = {
+          id: 1,
+          status: 'Pending',
+          total_amount: 950,
+          deposit_amount: 250,
+          items: [{ product_name: 'Mesa de muestra', quantity: 1, unit_price: 950, subtotal: 950 }]
+        };
+        const sampleClient = {
+          name: i18nService.getLanguage() === 'en' ? 'Sample Customer' : 'Cliente de muestra',
+          phone: draftSettings.invoice.phone || '—',
+          address: draftSettings.invoice.address || '—'
+        };
+        const pdfDoc = generatePdfReceipt(sampleOrder, sampleClient, draftSettings);
+        if (isNative) {
+          await pdfDoc.open();
+        } else {
+          const previewUrl = URL.createObjectURL(await pdfDoc.getBlob());
+          const previewWrapper = document.createElement('div');
+          previewWrapper.innerHTML = `
+            <div class="modal-overlay pdf-preview-overlay" id="invoice-preview-modal">
+              <div class="modal-content pdf-preview-modal-content">
+                <div class="modal-header">
+                  <div class="modal-title">Vista previa de factura</div>
+                  <button class="modal-close" type="button" id="close-invoice-preview" aria-label="Cerrar">&times;</button>
+                </div>
+                <iframe class="invoice-preview-frame" title="Vista previa de factura"></iframe>
+              </div>
+            </div>
+          `;
+          previewWrapper.querySelector('iframe').src = previewUrl;
+          document.body.appendChild(previewWrapper);
+          i18nService.apply(previewWrapper);
+          const closePreview = () => {
+            URL.revokeObjectURL(previewUrl);
+            previewWrapper.remove();
+          };
+          previewWrapper.querySelector('#close-invoice-preview').addEventListener('click', closePreview);
+          previewWrapper.querySelector('.pdf-preview-overlay').addEventListener('click', event => {
+            if (event.target === event.currentTarget) closePreview();
+          });
+        }
+      } catch (error) {
+        alert(error.message || 'No se pudo preparar la vista previa.');
+      } finally {
+        button.disabled = false;
+      }
+    });
     wrapper.querySelector('#save-invoice-settings').addEventListener('click', () => {
       const title = wrapper.querySelector('#invoice-title').value.trim();
       const workshopName = wrapper.querySelector('#invoice-workshop-name').value.trim();
@@ -280,6 +367,83 @@ export function renderSettingsView(container, { onRefresh } = {}) {
       window.showToast?.('Configuración de la factura guardada');
       close();
       loadView();
+    });
+  }
+
+  function showExportModal() {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `
+      <div class="modal-overlay" id="export-settings-modal">
+        <div class="modal-content" style="max-width:520px;">
+          <div class="modal-header">
+            <div class="modal-title">Exportar datos</div>
+            <button class="modal-close" type="button" id="close-export-settings" aria-label="Cerrar">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label" for="export-format">Formato</label>
+              <select id="export-format" class="form-control">
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="csv">CSV (.csv)</option>
+                <option value="sqlite">Base de datos SQLite (.db)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="export-mode">Contenido</label>
+              <select id="export-mode" class="form-control">
+                <option value="full">Datos completos</option>
+                <option value="template">Plantilla vacía de operaciones</option>
+              </select>
+            </div>
+            <div class="form-group" id="export-dataset-group" hidden>
+              <label class="form-label" for="export-dataset">Conjunto CSV</label>
+              <select id="export-dataset" class="form-control">
+                <option value="Orders">Pedidos</option>
+                <option value="Clients">Clientes</option>
+                <option value="Products">Productos</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="cancel-export">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="run-export">Descargar exportación</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(wrapper);
+    i18nService.apply(wrapper);
+
+    const close = () => wrapper.remove();
+    const format = wrapper.querySelector('#export-format');
+    const mode = wrapper.querySelector('#export-mode');
+    const datasetGroup = wrapper.querySelector('#export-dataset-group');
+    const syncFormatOptions = () => {
+      const isSqlite = format.value === 'sqlite';
+      mode.disabled = isSqlite;
+      if (isSqlite) mode.value = 'full';
+      datasetGroup.hidden = format.value !== 'csv';
+    };
+    format.addEventListener('change', syncFormatOptions);
+    syncFormatOptions();
+    wrapper.querySelector('#close-export-settings').addEventListener('click', close);
+    wrapper.querySelector('#cancel-export').addEventListener('click', close);
+    wrapper.querySelector('#run-export').addEventListener('click', async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        await exportOperations({
+          format: format.value,
+          mode: mode.value,
+          dataset: wrapper.querySelector('#export-dataset').value
+        });
+        window.showToast?.('Exportación descargada');
+        close();
+      } catch (error) {
+        alert(error.message || 'No se pudo exportar la información.');
+      } finally {
+        button.disabled = false;
+      }
     });
   }
 

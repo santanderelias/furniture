@@ -1,8 +1,10 @@
 import { dataService } from '../services/dataService.js';
 import { settingsService } from '../services/settingsService.js';
 import { i18nService } from '../services/i18nService.js';
+import { formatMoney } from '../services/formatService.js';
+import { recordRevision, showRecordHistory } from '../services/recordHistoryService.js';
 
-export function renderProductsView(container, { onRefresh } = {}) {
+export function renderProductsView(container, { onRefresh, openNewProduct = false } = {}) {
   let products = [];
   let activeCategory = 'All';
   let searchTerm = '';
@@ -20,6 +22,10 @@ export function renderProductsView(container, { onRefresh } = {}) {
     try {
       products = await dataService.getProducts();
       render();
+      if (openNewProduct) {
+        openNewProduct = false;
+        showProductModal();
+      }
     } catch (err) {
       console.error('Error al cargar catálogo:', err);
       container.innerHTML = `<div class="error-msg">Error al cargar el catálogo: ${err.message}</div>`;
@@ -78,7 +84,7 @@ export function renderProductsView(container, { onRefresh } = {}) {
                       ${escapeHtml(item.category || 'General')}
                     </span>
                   </div>
-                  <div class="item-card-price">$${Number(item.price).toFixed(2)}</div>
+                  <div class="item-card-price">${formatMoney(item.price)}</div>
                 </div>
 
                 <div style="margin-top: 0.5rem; font-size: 0.825rem; color: var(--text-muted); line-height: 1.4;">
@@ -180,7 +186,10 @@ export function renderProductsView(container, { onRefresh } = {}) {
         <div class="modal-content">
           <div class="modal-header">
             <div class="modal-title">${existing ? 'Editar mueble' : 'Agregar mueble al catálogo'}</div>
-            <button class="modal-close" id="close-modal">&times;</button>
+            <div class="modal-header-actions">
+              ${existing ? '<button type="button" class="btn btn-outline btn-sm" id="btn-product-history">Historial</button>' : ''}
+              <button class="modal-close" id="close-modal">&times;</button>
+            </div>
           </div>
           <div class="modal-body">
             <form id="product-form">
@@ -232,6 +241,20 @@ export function renderProductsView(container, { onRefresh } = {}) {
     const close = () => wrapper.remove();
     document.getElementById('close-modal').addEventListener('click', close);
     document.getElementById('btn-cancel').addEventListener('click', close);
+    wrapper.querySelector('#btn-product-history')?.addEventListener('click', () => {
+      showRecordHistory({
+        type: 'product',
+        id: existing.id,
+        current: existing,
+        onRestore: async snapshot => {
+          await recordRevision('product', existing.id, existing);
+          await dataService.saveProduct(snapshot);
+          close();
+          loadData();
+          if (onRefresh) onRefresh();
+        }
+      });
+    });
 
     document.getElementById('btn-save').addEventListener('click', async () => {
       const name = document.getElementById('prod-name').value.trim();
@@ -255,6 +278,7 @@ export function renderProductsView(container, { onRefresh } = {}) {
           stock,
           description
         });
+        if (existing) await recordRevision('product', existing.id, existing);
         window.showToast?.(existing ? 'Producto actualizado' : 'Mueble agregado al catálogo');
         close();
         loadData();

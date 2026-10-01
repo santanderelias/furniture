@@ -2,6 +2,7 @@ import pdfMake from 'pdfmake/build/pdfmake.js';
 import pdfFonts from 'pdfmake/build/vfs_fonts.js';
 import { dataService, isNativePlatform } from './dataService.js';
 import { settingsService } from './settingsService.js';
+import { formatDate, formatMoney } from './formatService.js';
 
 const virtualFileSystem = pdfFonts?.pdfMake?.vfs || pdfFonts?.vfs || pdfFonts;
 if (!virtualFileSystem || !Object.keys(virtualFileSystem).length) {
@@ -19,7 +20,7 @@ const labels = {
     customer: 'DATOS DEL CLIENTE', payment: 'RESUMEN DE PAGO', subtotalAmount: 'Subtotal:', taxAmount: 'IVA / Impuesto:', total: 'Total del pedido:', deposit: 'Anticipo pagado:', balance: 'Saldo pendiente:', paid: 'PAGADO EN SU TOTALIDAD', partial: 'ANTICIPO PARCIAL - SALDO A LA ENTREGA',
     items: 'DETALLE DEL PEDIDO', number: 'N.º', description: 'Descripción', quantity: 'Cant.', unitPrice: 'Precio unitario', lineTotal: 'Importe',
     terms: 'TÉRMINOS DE PRODUCCIÓN Y GARANTÍA',
-    subtotal: 'Subtotal:', received: 'Anticipo recibido:', signatureClient: 'Aceptación y firma del cliente', signatureMaker: 'Firma del fabricante', phone: 'Teléfono:', email: 'Email:', address: 'Dirección:', delivery: 'Entrega:', notes: 'Notas:', date: 'Fecha:', receipt: 'Recibo:', custom: 'Mueble personalizado', walkIn: 'Cliente de mostrador', pickup: 'Retiro en taller',
+    subtotal: 'Subtotal:', received: 'Anticipo recibido:', signatureClient: 'Aceptación y firma del cliente', signatureMaker: 'Firma del fabricante', phone: 'Teléfono:', email: 'Email:', address: 'Dirección:', delivery: 'Entrega:', deliveryDate: 'Fecha de entrega:', notes: 'Notas:', date: 'Fecha:', receipt: 'Recibo:', custom: 'Mueble personalizado', walkIn: 'Cliente de mostrador', pickup: 'Retiro en taller',
     status: { Pending: 'PENDIENTE', 'In Production': 'EN FABRICACIÓN', Delivered: 'ENTREGADO' }
   },
   en: {
@@ -27,7 +28,7 @@ const labels = {
     customer: 'CUSTOMER INFORMATION', payment: 'PAYMENT BREAKDOWN', subtotalAmount: 'Subtotal:', taxAmount: 'Tax:', total: 'Order total:', deposit: 'Deposit paid:', balance: 'Balance due:', paid: 'PAID IN FULL', partial: 'PARTIAL DEPOSIT - BALANCE UPON DELIVERY',
     items: 'ORDER DETAILS', number: 'No.', description: 'Description', quantity: 'Qty', unitPrice: 'Unit price', lineTotal: 'Amount',
     terms: 'PRODUCTION & WARRANTY TERMS',
-    subtotal: 'Subtotal:', received: 'Deposit received:', signatureClient: 'Customer acceptance & signature', signatureMaker: 'Craftsman signature', phone: 'Phone:', email: 'Email:', address: 'Address:', delivery: 'Delivery:', notes: 'Notes:', date: 'Date:', receipt: 'Receipt:', custom: 'Custom furniture piece', walkIn: 'Walk-in customer', pickup: 'Workshop pickup',
+    subtotal: 'Subtotal:', received: 'Deposit received:', signatureClient: 'Customer acceptance & signature', signatureMaker: 'Craftsman signature', phone: 'Phone:', email: 'Email:', address: 'Address:', delivery: 'Delivery:', deliveryDate: 'Delivery date:', notes: 'Notes:', date: 'Date:', receipt: 'Receipt:', custom: 'Custom furniture piece', walkIn: 'Walk-in customer', pickup: 'Workshop pickup',
     status: { Pending: 'PENDING', 'In Production': 'IN PRODUCTION', Delivered: 'DELIVERED' }
   }
 };
@@ -48,14 +49,62 @@ const asBase64 = (generator) => new Promise((resolve, reject) => {
   }
 });
 
-export const generatePdfReceipt = (order, client = {}) => {
-  const settings = settingsService.getSettings();
+const createPdfActions = (pdf, fileName) => ({
+  getBlob: () => asBlob(pdf),
+  getBase64: () => asBase64(pdf),
+  async download() {
+    if (isNativePlatform()) {
+      const base64 = await asBase64(pdf);
+      const result = await dataService.downloadInvoice(base64, fileName);
+      if (result) return result;
+    }
+    const url = URL.createObjectURL(await asBlob(pdf));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return { success: true, fileName };
+  },
+  async open() {
+    if (isNativePlatform()) {
+      const result = await dataService.openInvoice(await asBase64(pdf), fileName);
+      if (result) return result;
+    }
+    const tab = window.open('about:blank', '_blank');
+    if (!tab) throw new Error('El navegador bloqueó la ventana de vista previa. Permite ventanas emergentes para este sitio.');
+    const url = URL.createObjectURL(await asBlob(pdf));
+    tab.location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    return { success: true, fileName };
+  },
+  async print() {
+    if (isNativePlatform()) {
+      const result = await dataService.printInvoice(await asBase64(pdf), fileName);
+      if (result) return result;
+    }
+    const tab = window.open('about:blank', '_blank');
+    if (!tab) throw new Error('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes para este sitio.');
+    const url = URL.createObjectURL(await asBlob(pdf));
+    tab.document.write(`<iframe title="Documento PDF" src="${url}" style="border:0;width:100%;height:100%"></iframe>`);
+    tab.document.close();
+    tab.addEventListener('load', () => setTimeout(() => tab.print(), 500), { once: true });
+    setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    return { success: true, fileName };
+  }
+});
+
+export const generatePdfReceipt = (order, client = {}, settingsOverride = null) => {
+  const settings = settingsOverride || settingsService.getSettings();
   const invoice = settings.invoice || {};
   const language = settings.language === 'en' ? 'en' : 'es';
   const text = labels[language];
   const currency = settings.currency || '$';
   const taxRate = Number(settings.taxRate) || 0;
-  const money = value => `${currency}${(Number(value) || 0).toFixed(2)}`;
+  const money = value => formatMoney(value, currency);
 
   const clientName = client.name || order.client_name || text.walkIn;
   const clientPhone = client.phone || order.client_phone || '—';
@@ -68,10 +117,7 @@ export const generatePdfReceipt = (order, client = {}) => {
   const invoiceAddress = String(invoice.address || '').trim();
   const customTerms = String(invoice.terms || '').trim();
 
-  const date = order.created_at ? new Date(order.created_at) : new Date();
-  const orderDate = date.toLocaleDateString(language === 'es' ? 'es-AR' : 'en-US', {
-    year: 'numeric', month: 'short', day: 'numeric'
-  });
+  const orderDate = formatDate(order.created_at || new Date(), language);
 
   const rawTotal = Number(order.total_amount) || 0;
   let subtotalAmount = rawTotal;
@@ -147,7 +193,6 @@ export const generatePdfReceipt = (order, client = {}) => {
     ]
   }];
 
-  const statusColor = order.status === 'Delivered' ? '#10b981' : order.status === 'In Production' ? '#0284c7' : '#f59e0b';
   const docDefinition = {
     pageSize: invoice.pageSize === 'LETTER' ? 'LETTER' : 'A4',
     pageOrientation: invoice.orientation === 'landscape' ? 'landscape' : 'portrait',
@@ -166,7 +211,7 @@ export const generatePdfReceipt = (order, client = {}) => {
             { text: invoice.title || text.invoiceTitle, fontSize: 14, bold: true, alignment: 'right', color: '#1e293b' },
             { text: `${text.receipt} REC-${String(order.id || 1).padStart(5, '0')}`, fontSize: 10, bold: true, alignment: 'right', margin: [0, 2, 0, 0] },
             { text: `${text.date} ${orderDate}`, fontSize: 9, alignment: 'right', color: '#64748b' },
-            { text: text.status[order.status] || text.status.Pending, fontSize: 8, bold: true, color: '#ffffff', background: statusColor, alignment: 'center', margin: [0, 4, 0, 0] }
+            ...(order.delivery_date ? [{ text: `${text.deliveryDate} ${formatDate(order.delivery_date, language)}`, fontSize: 9, alignment: 'right', color: '#64748b' }] : [])
           ]
         ]
       },
@@ -219,57 +264,89 @@ export const generatePdfReceipt = (order, client = {}) => {
 
   const pdf = pdfMake.createPdf(docDefinition);
   const fileName = `Factura-${String(order.id || 1).padStart(5, '0')}.pdf`;
-  const getBlob = () => asBlob(pdf);
-  const getBase64 = () => asBase64(pdf);
+  return createPdfActions(pdf, fileName);
+};
 
-  return {
-    getBlob,
-    getBase64,
-    async download() {
-      if (isNativePlatform()) {
-        const base64 = await getBase64();
-        const result = await dataService.downloadInvoice(base64, fileName);
-        if (result) return result;
-      }
-      const blob = await getBlob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      return { success: true, fileName };
-    },
-    async open() {
-      if (isNativePlatform()) {
-        const base64 = await getBase64();
-        const result = await dataService.openInvoice(base64, fileName);
-        if (result) return result;
-      }
-      const tab = window.open('about:blank', '_blank');
-      if (!tab) throw new Error('El navegador bloqueó la ventana de vista previa. Permite ventanas emergentes para este sitio.');
-      const url = URL.createObjectURL(await getBlob());
-      tab.location.href = url;
-      setTimeout(() => URL.revokeObjectURL(url), 120_000);
-      return { success: true, fileName };
-    },
-    async print() {
-      if (isNativePlatform()) {
-        const base64 = await getBase64();
-        const result = await dataService.printInvoice(base64, fileName);
-        if (result) return result;
-      }
-      const tab = window.open('about:blank', '_blank');
-      if (!tab) throw new Error('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes para este sitio.');
-      const url = URL.createObjectURL(await getBlob());
-      tab.document.write(`<iframe title="Factura PDF" src="${url}" style="border:0;width:100%;height:100%"></iframe>`);
-      tab.document.close();
-      tab.addEventListener('load', () => setTimeout(() => tab.print(), 500), { once: true });
-      setTimeout(() => URL.revokeObjectURL(url), 120_000);
-      return { success: true, fileName };
+export const generatePdfDeliveryReceipt = (order, client = {}) => {
+  const language = settingsService.getSettings().language === 'en' ? 'en' : 'es';
+  const text = language === 'es'
+    ? {
+      title: 'REMITO DE TRANSPORTE', order: 'Pedido', orderDate: 'Fecha del pedido', deliveryDate: 'Fecha de entrega',
+      client: 'Cliente', phone: 'Teléfono', address: 'Dirección de entrega', items: 'ARTÍCULOS A ENTREGAR',
+      quantity: 'Cantidad', description: 'Descripción', notes: 'NOTAS Y PREFERENCIAS',
+      receiver: 'Recibido por', signature: 'Firma', delivery: 'Entrega'
     }
-  };
+    : {
+      title: 'DELIVERY RECEIPT', order: 'Order', orderDate: 'Order date', deliveryDate: 'Delivery date',
+      client: 'Client', phone: 'Phone', address: 'Delivery address', items: 'ITEMS TO DELIVER',
+      quantity: 'Quantity', description: 'Description', notes: 'CLIENT NOTES AND PREFERENCES',
+      receiver: 'Received by', signature: 'Signature', delivery: 'Delivery'
+    };
+  const items = Array.isArray(order.items) ? order.items : [];
+  const body = [[
+    { text: text.quantity, style: 'tableHeader', alignment: 'center' },
+    { text: text.description, style: 'tableHeader' }
+  ]];
+  items.forEach(item => body.push([
+    { text: String(Number(item.quantity) || 0), alignment: 'center', margin: [0, 5, 0, 5] },
+    { text: item.product_name || '—', margin: [0, 5, 0, 5] }
+  ]));
+
+  const address = order.client_address || client.address || '';
+  const notes = client.notes || order.client_notes || '';
+  const orderDate = formatDate(order.created_at, language);
+  const deliveryDate = formatDate(order.delivery_date, language);
+  const orderNumber = String(order.id || '').padStart(4, '0');
+  const pdf = pdfMake.createPdf({
+    pageSize: 'A4',
+    pageMargins: [38, 42, 38, 42],
+    content: [
+      { text: text.title, fontSize: 20, bold: true, color: '#92400e', margin: [0, 0, 0, 6] },
+      { text: `${text.order} #${orderNumber}`, fontSize: 11, bold: true, margin: [0, 0, 0, 14] },
+      {
+        columns: [
+          { width: '*', stack: [
+            { text: text.client.toUpperCase(), fontSize: 8, bold: true, color: '#64748b' },
+            { text: client.name || order.client_name || '—', fontSize: 12, bold: true, margin: [0, 3, 0, 6] },
+            { text: `${text.phone}: ${client.phone || order.client_phone || '—'}`, fontSize: 9, margin: [0, 0, 0, 4] },
+            { text: `${text.address}: ${address || '—'}`, fontSize: 10, bold: true, margin: [0, 0, 0, 4] }
+          ] },
+          { width: 145, stack: [
+            { text: `${text.orderDate}: ${orderDate}`, fontSize: 9, margin: [0, 0, 0, 5] },
+            { text: `${text.deliveryDate}: ${deliveryDate}`, fontSize: 9, bold: true }
+          ] }
+        ],
+        columnGap: 16,
+        margin: [0, 0, 0, 15]
+      },
+      { text: text.items, fontSize: 10, bold: true, margin: [0, 0, 0, 6] },
+      {
+        table: { headerRows: 1, widths: [75, '*'], body },
+        layout: {
+          fillColor: rowIndex => rowIndex === 0 ? '#f1f5f9' : rowIndex % 2 === 0 ? '#fafafa' : null,
+          hLineWidth: () => 0.5, vLineWidth: () => 0.5,
+          hLineColor: () => '#cbd5e1', vLineColor: () => '#cbd5e1',
+          paddingLeft: () => 8, paddingRight: () => 8, paddingTop: () => 6, paddingBottom: () => 6
+        }
+      },
+      ...(notes ? [{ text: text.notes, fontSize: 9, bold: true, margin: [0, 18, 0, 4] }, { text: notes, fontSize: 10, color: '#334155' }] : []),
+      {
+        columns: [
+          { width: '50%', stack: [
+            { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 220, y2: 0, lineWidth: 1, lineColor: '#94a3b8' }], margin: [0, 0, 0, 5] },
+            { text: text.receiver, fontSize: 8, color: '#64748b' }
+          ] },
+          { width: '50%', stack: [
+            { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 220, y2: 0, lineWidth: 1, lineColor: '#94a3b8' }], margin: [0, 0, 0, 5] },
+            { text: text.signature, fontSize: 8, color: '#64748b' }
+          ] }
+        ],
+        columnGap: 18,
+        margin: [0, 42, 0, 0]
+      },
+      { text: `${text.delivery}: ____________________`, fontSize: 9, color: '#64748b', margin: [0, 18, 0, 0] }
+    ],
+    styles: { tableHeader: { bold: true, fontSize: 9, color: '#1e293b' } }
+  });
+  return createPdfActions(pdf, `Remito-Transporte-${orderNumber}.pdf`);
 };

@@ -1,7 +1,9 @@
 import { dataService } from '../services/dataService.js';
 import { i18nService } from '../services/i18nService.js';
+import { formatDate, formatMoney, sortOrders } from '../services/formatService.js';
+import { recordRevision, showRecordHistory } from '../services/recordHistoryService.js';
 
-export function renderClientsView(container, { onRefresh, onSelectClientForOrder } = {}) {
+export function renderClientsView(container, { onRefresh, onSelectClientForOrder, openNewClient = false } = {}) {
   let clients = [];
   let orders = [];
   let searchTerm = '';
@@ -13,6 +15,10 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
         dataService.getOrders()
       ]);
       render();
+      if (openNewClient) {
+        openNewClient = false;
+        showClientModal();
+      }
     } catch (err) {
       console.error('Error al cargar clientes:', err);
       container.innerHTML = `<div class="error-msg">Error al cargar clientes: ${err.message}</div>`;
@@ -80,11 +86,12 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
                   ` : ''}
 
                   <div style="margin-top: 0.75rem; font-size: 0.825rem;">
-                    <strong>Total consumido:</strong> <span style="color:var(--primary); font-weight:700;">$${totalSpent.toFixed(2)}</span>
+                    <strong>Total gastado:</strong> <span style="color:var(--primary); font-weight:700;">${formatMoney(totalSpent)}</span>
                   </div>
                 </div>
 
                 <div class="item-card-actions">
+                  ${client.phone ? `<a class="btn btn-outline btn-sm btn-whatsapp" href="https://wa.me/${client.phone.replace(/\D/g, '')}" target="_blank" rel="noopener noreferrer" aria-label="Abrir WhatsApp con ${escapeHtml(client.name)}">WhatsApp</a>` : ''}
                   <button class="btn btn-outline btn-sm btn-view-orders" data-id="${client.id}">
                     Ver pedidos
                   </button>
@@ -176,7 +183,10 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
         <div class="modal-content">
           <div class="modal-header">
             <div class="modal-title">${existing ? 'Editar perfil del cliente' : 'Agregar nuevo cliente'}</div>
-            <button class="modal-close" id="close-modal">&times;</button>
+            <div class="modal-header-actions">
+              ${existing ? '<button type="button" class="btn btn-outline btn-sm" id="btn-client-history">Historial</button>' : ''}
+              <button class="modal-close" id="close-modal">&times;</button>
+            </div>
           </div>
           <div class="modal-body">
             <form id="client-form">
@@ -216,6 +226,20 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
     const close = () => wrapper.remove();
     document.getElementById('close-modal').addEventListener('click', close);
     document.getElementById('btn-cancel').addEventListener('click', close);
+    wrapper.querySelector('#btn-client-history')?.addEventListener('click', () => {
+      showRecordHistory({
+        type: 'client',
+        id: existing.id,
+        current: existing,
+        onRestore: async snapshot => {
+          await recordRevision('client', existing.id, existing);
+          await dataService.saveClient(snapshot);
+          close();
+          loadData();
+          if (onRefresh) onRefresh();
+        }
+      });
+    });
 
     document.getElementById('btn-save').addEventListener('click', async () => {
       const name = document.getElementById('client-name').value.trim();
@@ -235,6 +259,7 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
           address,
           notes
         });
+        if (existing) await recordRevision('client', existing.id, existing);
         window.showToast?.(existing ? 'Cliente actualizado' : 'Cliente registrado');
         close();
         loadData();
@@ -246,42 +271,44 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
   };
 
   const showClientOrdersModal = (client) => {
-    const clientOrders = orders.filter(o => Number(o.client_id) === Number(client.id));
+    const clientOrders = sortOrders(orders.filter(o => Number(o.client_id) === Number(client.id)), 'added');
 
     const modalHtml = `
       <div class="modal-overlay" id="client-orders-modal">
         <div class="modal-content" style="max-width: 650px;">
           <div class="modal-header">
-            <div class="modal-title">Historial de pedidos de ${escapeHtml(client.name)}</div>
+            <div>
+              <div class="modal-title">Historial de pedidos de ${escapeHtml(client.name)}</div>
+              <div class="row-subtitle">${escapeHtml(client.address || 'Sin dirección especificada')}</div>
+            </div>
             <button class="modal-close" id="close-modal">&times;</button>
           </div>
           <div class="modal-body">
             ${clientOrders.length === 0 ? `
               <p style="color:var(--text-muted); text-align:center; padding: 2rem;">Este cliente todavía no tiene pedidos registrados.</p>
             ` : `
-              <div class="card-table-wrapper">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>N.º pedido</th>
-                      <th>Estado</th>
-                      <th>Artículos</th>
-                      <th style="text-align:right;">Total</th>
-                      <th style="text-align:right;">Saldo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${clientOrders.map(o => `
-                      <tr>
-                        <td><strong>#${String(o.id).padStart(4, '0')}</strong></td>
-                        <td><span class="badge ${o.status === 'Delivered' ? 'badge-delivered' : o.status === 'In Production' ? 'badge-production' : 'badge-pending'}">${o.status === 'Delivered' ? 'Entregado' : o.status === 'In Production' ? 'En fabricación' : 'Pendiente'}</span></td>
-                        <td>${(o.items || []).map(i => `${i.quantity}x ${i.product_name}`).join(', ') || 'Mueble personalizado'}</td>
-                        <td style="text-align:right; font-weight:700;">$${Number(o.total_amount).toFixed(2)}</td>
-                        <td style="text-align:right; color:#b45309; font-weight:600;">$${Math.max(0, Number(o.total_amount) - Number(o.deposit_amount)).toFixed(2)}</td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
+              <div class="client-order-card-list">
+                ${clientOrders.map(o => {
+                  const status = o.status === 'Delivered' ? 'Entregado' : o.status === 'In Production' ? 'En fabricación' : 'Pendiente';
+                  const badge = o.status === 'Delivered' ? 'badge-delivered' : o.status === 'In Production' ? 'badge-production' : 'badge-pending';
+                  const items = (o.items || []).map(item => `${item.quantity}x ${item.product_name}`).join(', ') || 'Mueble personalizado';
+                  const balance = Math.max(0, Number(o.total_amount) - Number(o.deposit_amount));
+                  return `
+                    <article class="client-order-card">
+                      <strong>#${String(o.id).padStart(4, '0')}</strong>
+                      <span class="badge ${badge}">${i18nService.text(status)}</span>
+                      <div class="order-card-dates">
+                        <div><span>Fecha del pedido</span><time>${formatDate(o.created_at)}</time></div>
+                        <div><span>Fecha de entrega</span><time>${formatDate(o.delivery_date)}</time></div>
+                      </div>
+                      <div class="order-card-totals">
+                        <div><span>Total</span><strong>${formatMoney(o.total_amount)}</strong></div>
+                        <div><span>Saldo</span><strong>${formatMoney(balance)}</strong></div>
+                      </div>
+                      <div class="order-card-items"><strong>Detalle:</strong><span>${escapeHtml(items)}</span></div>
+                    </article>
+                  `;
+                }).join('')}
               </div>
             `}
           </div>
