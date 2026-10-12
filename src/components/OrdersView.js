@@ -258,20 +258,12 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     });
 
     container.querySelectorAll('.btn-delivery-note').forEach(btn => {
-      btn.addEventListener('click', async event => {
+      btn.addEventListener('click', (event) => {
         event.stopPropagation();
         const order = orders.find(candidate => Number(candidate.id) === Number(btn.dataset.id));
         if (!order) return;
         const client = clients.find(candidate => Number(candidate.id) === Number(order.client_id)) || {};
-        btn.disabled = true;
-        try {
-          await generatePdfDeliveryReceipt(order, client).download();
-          window.showToast?.('Remito de transporte descargado');
-        } catch (error) {
-          alert(error.message || 'No se pudo preparar el remito de transporte.');
-        } finally {
-          btn.disabled = false;
-        }
+        showDeliveryReceiptModal(order, client);
       });
     });
 
@@ -729,7 +721,7 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     const closeModal = () => modalWrapper.remove();
     document.getElementById('close-modal').addEventListener('click', closeModal);
     document.getElementById('btn-cancel-order').addEventListener('click', closeModal);
-    modalEl.querySelector('#btn-delivery-note').addEventListener('click', async event => {
+    modalEl.querySelector('#btn-delivery-note').addEventListener('click', event => {
       const client = selectedClient();
       if (!client) {
         alert(i18nService.text('Por favor elegí un cliente.'));
@@ -746,16 +738,7 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
         delivery_date: modalEl.querySelector('#order-delivery-date').value,
         items: orderItems.map(item => ({ ...item }))
       };
-      const button = event.currentTarget;
-      button.disabled = true;
-      try {
-        await generatePdfDeliveryReceipt(currentOrder, client).download();
-        window.showToast?.('Remito de transporte descargado');
-      } catch (error) {
-        alert(error.message || 'No se pudo preparar el remito de transporte.');
-      } finally {
-        button.disabled = false;
-      }
+      showDeliveryReceiptModal(currentOrder, client);
     });
     modalWrapper.querySelector('#btn-order-history')?.addEventListener('click', () => {
       showRecordHistory({
@@ -873,6 +856,144 @@ export function renderOrdersView(container, { onRefresh, openNewOrder = false, o
     });
     wrapper.querySelector('#btn-print-pdf').addEventListener('click', event => {
       runPdfAction(event.currentTarget, () => pdfDoc.print(), 'Se abrió el diálogo de impresión');
+    });
+  };
+
+  const showDeliveryReceiptModal = (order, client) => {
+    const language = settingsService.getSettings().language === 'en' ? 'en' : 'es';
+    const isEn = language === 'en';
+    const orderNumber = String(order.id || '').padStart(4, '0');
+    const orderDate = formatDate(order.created_at);
+    const deliveryDate = formatDate(order.delivery_date);
+    const clientName = client.name || order.client_name || (isEn ? 'Counter Customer' : 'Cliente de mostrador');
+    const clientPhone = client.phone || order.client_phone || '—';
+    const clientAddress = order.client_address || client.address || '—';
+    const clientNotes = client.notes || order.client_notes || '';
+    const items = Array.isArray(order.items) ? order.items : [];
+    const pdfDoc = generatePdfDeliveryReceipt(order, client);
+
+    const modalHtml = `
+      <div class="modal-overlay" id="delivery-receipt-modal">
+        <div class="modal-content" style="max-width: 680px;">
+          <div class="modal-header">
+            <div class="modal-title">${isEn ? 'Delivery Receipt' : 'Remito de transporte'} #${orderNumber}</div>
+            <button class="modal-close" id="close-delivery-modal" aria-label="Cerrar">&times;</button>
+          </div>
+          <div class="modal-body" style="padding: 1rem 1.25rem;">
+            <div class="delivery-receipt-container">
+              <div class="delivery-receipt-head">
+                <div>
+                  <div class="delivery-receipt-title">${isEn ? 'DELIVERY RECEIPT' : 'REMITO DE TRANSPORTE'}</div>
+                  <div style="font-weight:700; color:var(--text-muted); font-size:0.85rem; margin-top:0.25rem;">
+                    ${isEn ? 'Order' : 'Pedido'} #${orderNumber}
+                  </div>
+                </div>
+                <div style="text-align:right; font-size:0.8rem; color:var(--text-muted);">
+                  <div><strong>${isEn ? 'Order date:' : 'Fecha del pedido:'}</strong> ${orderDate}</div>
+                  <div><strong>${isEn ? 'Delivery date:' : 'Fecha de entrega:'}</strong> <span style="color:var(--text-main); font-weight:700;">${deliveryDate}</span></div>
+                </div>
+              </div>
+
+              <div class="delivery-receipt-meta-grid">
+                <div>
+                  <div class="delivery-receipt-section-title">${isEn ? 'CLIENT DETAILS' : 'DATOS DEL CLIENTE'}</div>
+                  <div style="font-weight:700; font-size:0.95rem; color:var(--text-main);">${escapeHtml(clientName)}</div>
+                  <div style="color:var(--text-muted); font-size:0.825rem; margin-top:0.2rem;">
+                    <strong>${isEn ? 'Phone:' : 'Teléfono:'}</strong> ${escapeHtml(clientPhone)}
+                  </div>
+                </div>
+                <div>
+                  <div class="delivery-receipt-section-title">${isEn ? 'DELIVERY ADDRESS' : 'DIRECCIÓN DE ENTREGA'}</div>
+                  <div style="font-weight:700; font-size:0.9rem; color:var(--accent);">${escapeHtml(clientAddress)}</div>
+                </div>
+              </div>
+
+              <div class="delivery-receipt-section-title">${isEn ? 'ITEMS TO DELIVER' : 'ARTÍCULOS A ENTREGAR'}</div>
+              <table class="delivery-receipt-items-table">
+                <thead>
+                  <tr>
+                    <th style="width:75px; text-align:center;">${isEn ? 'Qty' : 'Cant.'}</th>
+                    <th>${isEn ? 'Description' : 'Descripción del mueble / artículo'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${items.length === 0 ? `
+                    <tr><td colspan="2" style="text-align:center; color:var(--text-muted);">${isEn ? 'Custom furniture piece' : 'Mueble personalizado'}</td></tr>
+                  ` : items.map(item => `
+                    <tr>
+                      <td style="text-align:center; font-weight:700;">${Number(item.quantity) || 1}</td>
+                      <td>${escapeHtml(item.product_name || '—')}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+
+              ${clientNotes ? `
+                <div style="margin-top:0.75rem; background:var(--bg-subtle); padding:0.5rem 0.75rem; border-radius:6px; font-size:0.8rem;">
+                  <strong style="color:var(--text-muted);">${isEn ? 'Notes & preferences:' : 'Notas y preferencias de entrega:'}</strong>
+                  <div style="font-style:italic; margin-top:0.2rem;">"${escapeHtml(clientNotes)}"</div>
+                </div>
+              ` : ''}
+
+              <div class="delivery-receipt-signature-row">
+                <div class="delivery-receipt-sig-line">
+                  ${isEn ? 'Received by (Full name & ID)' : 'Recibido por (Nombre y DNI)'}
+                </div>
+                <div class="delivery-receipt-sig-line">
+                  ${isEn ? 'Client signature & date' : 'Firma del cliente y fecha'}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer" style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+              <button type="button" class="btn btn-outline" id="btn-open-delivery-pdf">
+                ${isEn ? 'Open PDF' : 'Abrir PDF'}
+              </button>
+              <button type="button" class="btn btn-primary" id="btn-download-delivery-pdf">
+                ${isEn ? 'Download PDF' : 'Descargar PDF'}
+              </button>
+              <button type="button" class="btn btn-outline" id="btn-print-delivery-pdf">
+                ${isEn ? 'Print' : 'Imprimir'}
+              </button>
+            </div>
+            <button type="button" class="btn btn-outline" id="btn-close-delivery-modal">
+              ${isEn ? 'Close' : 'Cerrar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = modalHtml;
+    document.body.appendChild(wrapper);
+    i18nService.apply(wrapper);
+
+    const close = () => wrapper.remove();
+    wrapper.querySelector('#close-delivery-modal').addEventListener('click', close);
+    wrapper.querySelector('#btn-close-delivery-modal').addEventListener('click', close);
+
+    const runAction = async (btn, action, successMsg) => {
+      btn.disabled = true;
+      try {
+        await action();
+        window.showToast?.(successMsg);
+      } catch (err) {
+        alert(err.message || 'No se pudo procesar el remito de transporte.');
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    wrapper.querySelector('#btn-open-delivery-pdf').addEventListener('click', e => {
+      runAction(e.currentTarget, () => pdfDoc.open(), isEn ? 'Opening delivery receipt...' : 'Abriendo remito de transporte...');
+    });
+    wrapper.querySelector('#btn-download-delivery-pdf').addEventListener('click', e => {
+      runAction(e.currentTarget, () => pdfDoc.download(), isEn ? 'Delivery receipt downloaded' : 'Remito de transporte descargado');
+    });
+    wrapper.querySelector('#btn-print-delivery-pdf').addEventListener('click', e => {
+      runAction(e.currentTarget, () => pdfDoc.print(), isEn ? 'Printing delivery receipt...' : 'Imprimiendo remito de transporte...');
     });
   };
 

@@ -3,6 +3,7 @@ import { dataService, isNativePlatform } from '../services/dataService.js';
 import { i18nService } from '../services/i18nService.js';
 import { generatePdfReceipt } from '../services/pdfService.js';
 import { exportOperations } from '../services/exportService.js';
+import { updaterService } from '../services/updater.js';
 
 export function renderSettingsView(container, { onRefresh, openExport = false } = {}) {
   const isNative = isNativePlatform();
@@ -12,6 +13,11 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
     let serverInfo = { ip: '127.0.0.1', port: 8080, isRunning: false };
     try {
       serverInfo = await dataService.getServerInfo();
+    } catch (e) {}
+
+    let activeVersion = '1.0.0';
+    try {
+      activeVersion = await updaterService.getCurrentVersion();
     } catch (e) {}
 
     container.innerHTML = `
@@ -28,6 +34,27 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
           <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
             <button id="language-es-btn" class="btn ${settings.language === 'es' ? 'btn-primary' : 'btn-outline'}">Español (Argentina)</button>
             <button id="language-en-btn" class="btn ${settings.language === 'en' ? 'btn-primary' : 'btn-outline'}">English</button>
+          </div>
+        </div>
+
+        <!-- Modo de visualización / Simple Mode -->
+        <div class="card-table-wrapper" style="padding: 1.25rem;">
+          <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.35rem;">Modo de visualización</h3>
+          <p style="font-size:0.825rem; color:var(--text-muted); margin-bottom:1rem;">
+            Interfaz compacta y optimizada con tarjetas simplificadas para agilizar el trabajo.
+          </p>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:0.75rem; background:var(--bg-main); border-radius:var(--radius-md); border:1px solid var(--border);">
+            <div>
+              <div style="font-weight:600; font-size:0.875rem;">Modo simple (predeterminado)</div>
+              <div style="font-size:0.775rem; color:var(--text-muted);">
+                Muestra clientes en 4 filas y simplifica todas las áreas en formato compacto.
+              </div>
+            </div>
+            <label class="switch" style="position:relative; display:inline-block; width:50px; height:28px; flex-shrink:0;">
+              <input type="checkbox" id="toggle-simple-mode" ${settings.simpleMode !== false ? 'checked' : ''} style="opacity:0; width:0; height:0;">
+              <span class="slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${settings.simpleMode !== false ? 'var(--accent)' : '#cbd5e1'}; transition:0.3s; border-radius:34px;"></span>
+            </label>
           </div>
         </div>
 
@@ -121,11 +148,126 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
             </div>
           </div>
         </div>
+
+        <!-- App Version & Updates -->
+        <div class="card-table-wrapper" style="padding: 1.25rem;">
+          <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.35rem;">App Version & Updates</h3>
+          <p style="font-size:0.825rem; color:var(--text-muted); margin-bottom:1rem;">
+            Control de versiones en vivo (OTA) y estado de actualizaciones del sistema.
+          </p>
+
+          <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.85rem; background:var(--bg-main); border-radius:var(--radius-md); border:1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+              <div>
+                <div style="color:var(--text-muted); font-size:0.75rem;">Versión web activa</div>
+                <div style="font-weight:700; font-size:1rem; color:var(--text-main);" id="ota-current-version">
+                  ${escapeHtml(activeVersion)}
+                </div>
+              </div>
+              <button id="btn-check-updates" class="btn btn-primary btn-sm">
+                Buscar actualizaciones
+              </button>
+            </div>
+
+            <div id="ota-status-area" style="font-size:0.825rem; color:var(--text-muted); display:none;"></div>
+
+            <div id="ota-progress-wrapper" style="display:none;">
+              <div style="display:flex; justify-content:space-between; font-size:0.775rem; margin-bottom:0.25rem;">
+                <span id="ota-progress-label">Descargando dist.zip...</span>
+                <span id="ota-progress-pct" style="font-weight:700;">0%</span>
+              </div>
+              <div class="ota-progress-container">
+                <div class="ota-progress-bar" id="ota-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     `;
     i18nService.apply(container);
 
     // Event listeners
+    container.querySelector('#toggle-simple-mode')?.addEventListener('change', (e) => {
+      const val = e.target.checked;
+      settingsService.setSetting('simpleMode', val);
+      window.showToast?.(val ? 'Modo simple activado' : 'Modo estándar activado');
+      loadView();
+    });
+
+    const checkUpdatesBtn = container.querySelector('#btn-check-updates');
+    const statusArea = container.querySelector('#ota-status-area');
+    const progressWrapper = container.querySelector('#ota-progress-wrapper');
+    const progressBar = container.querySelector('#ota-progress-bar');
+    const progressPct = container.querySelector('#ota-progress-pct');
+
+    checkUpdatesBtn?.addEventListener('click', async () => {
+      checkUpdatesBtn.disabled = true;
+      if (statusArea) {
+        statusArea.style.display = 'block';
+        statusArea.innerHTML = `<span style="color:var(--text-muted);">${escapeHtml(i18nService.text('Buscando actualizaciones...'))}</span>`;
+      }
+      try {
+        const updateInfo = await updaterService.checkForUpdates();
+        if (!updateInfo.updateAvailable) {
+          if (statusArea) {
+            statusArea.innerHTML = `<span style="color:var(--success); font-weight:600;">✓ ${escapeHtml(i18nService.text('La aplicación está actualizada'))} (${escapeHtml(updateInfo.currentVersion)})</span>`;
+          }
+          window.showToast?.(i18nService.text('La aplicación está actualizada'));
+        } else {
+          if (statusArea) {
+            statusArea.innerHTML = `
+              <div style="margin-bottom:0.5rem;">
+                <strong style="color:var(--accent);">🎉 ${escapeHtml(i18nService.text('Nueva versión disponible'))}: ${escapeHtml(updateInfo.latestVersion)}</strong>
+                <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.2rem;">
+                  ${escapeHtml(updateInfo.releaseName || '')}
+                </div>
+              </div>
+              <button id="btn-download-dist" class="btn btn-primary btn-sm">
+                ${escapeHtml(i18nService.text('Descargar actualización'))}
+              </button>
+            `;
+
+            container.querySelector('#btn-download-dist')?.addEventListener('click', async (event) => {
+              const downloadBtn = event.currentTarget;
+              downloadBtn.disabled = true;
+              if (progressWrapper) progressWrapper.style.display = 'block';
+              if (progressBar) progressBar.style.width = '0%';
+              if (progressPct) progressPct.textContent = '0%';
+
+              try {
+                const bundle = await updaterService.downloadAndApplyUpdate(updateInfo, (percent) => {
+                  if (progressBar) progressBar.style.width = `${percent}%`;
+                  if (progressPct) progressPct.textContent = `${percent}%`;
+                });
+                if (statusArea) {
+                  statusArea.innerHTML = `
+                    <div style="color:var(--success); font-weight:700; margin-bottom:0.35rem;">
+                      ✓ ${escapeHtml(i18nService.text('Actualización lista'))}
+                    </div>
+                    <button id="btn-restart-now" class="btn btn-primary btn-sm">
+                      ${escapeHtml(i18nService.text('Reiniciar app'))}
+                    </button>
+                  `;
+                  container.querySelector('#btn-restart-now')?.addEventListener('click', async () => {
+                    await updaterService.applyAndRestart(bundle);
+                  });
+                }
+              } catch (downloadErr) {
+                alert('Error al descargar la actualización: ' + (downloadErr.message || downloadErr));
+                if (progressWrapper) progressWrapper.style.display = 'none';
+                downloadBtn.disabled = false;
+              }
+            });
+          }
+        }
+      } catch (err) {
+        if (statusArea) {
+          statusArea.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(err.message || 'No se pudo verificar actualizaciones')}</span>`;
+        }
+      } finally {
+        checkUpdatesBtn.disabled = false;
+      }
+    });
     container.querySelector('#language-es-btn')?.addEventListener('click', () => {
       settingsService.setSetting('language', 'es');
       window.dispatchEvent(new CustomEvent('app-language-changed'));

@@ -64,33 +64,36 @@ export function renderClientsView(container, { onRefresh, onSelectClientForOrder
 
             return `
               <div class="item-card client-card" data-id="${client.id}" tabindex="0" aria-label="Editar cliente ${escapeHtml(client.name)}">
-                <div>
-                  <div class="item-card-header">
-                    <div>
-                      <div class="item-card-title">${escapeHtml(client.name)}</div>
-                      <div class="item-card-meta">${escapeHtml(client.phone || 'Sin teléfono registrado')}</div>
-                    </div>
-                    <span class="badge" style="background:var(--bg-subtle); color:var(--text-muted);">
+                <div class="client-card-body">
+                  <div class="client-card-row client-row-1 client-row-1-name item-card-header">
+                    <div class="item-card-title client-name-text">${escapeHtml(client.name)}</div>
+                    <span class="badge client-orders-badge" style="background:var(--bg-subtle); color:var(--text-muted);">
                       ${clientOrders.length} pedido(s)
                     </span>
                   </div>
 
-                  <div style="margin-top: 0.5rem; font-size: 0.825rem; color: var(--text-muted);">
-                    <strong>Dirección:</strong> ${escapeHtml(client.address || 'Sin dirección especificada')}
+                  <div class="client-card-row client-row-2 client-row-2-phone item-card-meta">
+                    <span class="client-phone-label">Tel:</span> <span class="client-phone-val">${escapeHtml(client.phone || 'Sin teléfono registrado')}</span>
                   </div>
 
-                  ${client.notes ? `
-                    <div style="margin-top: 0.5rem; font-size: 0.8rem; background: var(--bg-subtle); padding: 0.4rem 0.6rem; border-radius: 6px; font-style: italic; color: var(--text-muted);">
-                      "${escapeHtml(client.notes)}"
-                    </div>
-                  ` : ''}
+                  <div class="client-card-row client-row-3 client-row-3-address client-address-meta">
+                    <span class="client-address-label">Dirección:</span> <span class="client-address-val">${escapeHtml(client.address || 'Sin dirección especificada')}</span>
+                  </div>
 
-                  <div style="margin-top: 0.75rem; font-size: 0.825rem;">
-                    <strong>Total gastado:</strong> <span style="color:var(--primary); font-weight:700;">${formatMoney(totalSpent)}</span>
+                  <div class="client-card-extra">
+                    ${client.notes ? `
+                      <div class="client-notes-box">
+                        "${escapeHtml(client.notes)}"
+                      </div>
+                    ` : ''}
+
+                    <div class="client-spent-row">
+                      <strong>Total gastado:</strong> <span style="color:var(--primary); font-weight:700;">${formatMoney(totalSpent)}</span>
+                    </div>
                   </div>
                 </div>
 
-                <div class="item-card-actions">
+                <div class="client-card-row client-row-4 client-row-4-actions item-card-actions">
                   ${client.phone ? `<a class="btn btn-outline btn-sm btn-whatsapp" href="https://wa.me/${client.phone.replace(/\D/g, '')}" target="_blank" rel="noopener noreferrer" aria-label="Abrir WhatsApp con ${escapeHtml(client.name)}">WhatsApp</a>` : ''}
                   <button class="btn btn-outline btn-sm btn-view-orders" data-id="${client.id}">
                     Ver pedidos

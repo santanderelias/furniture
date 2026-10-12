@@ -71,13 +71,30 @@ const createPdfActions = (pdf, fileName) => ({
   },
   async open() {
     if (isNativePlatform()) {
-      const result = await dataService.openInvoice(await asBase64(pdf), fileName);
-      if (result) return result;
+      try {
+        const result = await dataService.openInvoice(await asBase64(pdf), fileName);
+        if (result) return result;
+      } catch (err) {
+        console.warn('Native openInvoice failed, attempting browser fallback:', err);
+      }
     }
-    const tab = window.open('about:blank', '_blank');
-    if (!tab) throw new Error('El navegador bloqueó la ventana de vista previa. Permite ventanas emergentes para este sitio.');
-    const url = URL.createObjectURL(await asBlob(pdf));
-    tab.location.href = url;
+    const blob = await asBlob(pdf);
+    const url = URL.createObjectURL(blob);
+    let tab = null;
+    try {
+      tab = window.open(url, '_blank');
+    } catch (e) {
+      tab = null;
+    }
+    if (!tab) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
     setTimeout(() => URL.revokeObjectURL(url), 120_000);
     return { success: true, fileName };
   },

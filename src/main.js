@@ -1,3 +1,4 @@
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { renderDashboardView } from './components/DashboardView.js';
 import { renderOrdersView } from './components/OrdersView.js';
 import { renderClientsView } from './components/ClientsView.js';
@@ -6,6 +7,14 @@ import { renderSettingsView } from './components/SettingsView.js';
 import { dataService, isNativePlatform } from './services/dataService.js';
 import { settingsService } from './services/settingsService.js';
 import { i18nService } from './services/i18nService.js';
+import './styles/simple.css';
+
+// Immediately notify CapacitorUpdater on startup
+Promise.resolve()
+  .then(() => CapacitorUpdater.notifyAppReady())
+  .catch((e) => {
+    console.warn('CapacitorUpdater.notifyAppReady early warning:', e);
+  });
 
 let currentView = 'dashboard';
 const mainView = document.getElementById('main-view');
@@ -130,7 +139,12 @@ function mountQuickActions() {
 }
 
 // Initialize Application
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    await CapacitorUpdater.notifyAppReady();
+  } catch (e) {
+    console.warn('CapacitorUpdater.notifyAppReady in DOMContentLoaded warning:', e);
+  }
   settingsService.init();
   i18nService.apply(document.body);
   window.addEventListener('app-language-changed', () => {

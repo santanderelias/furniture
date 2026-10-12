@@ -22,6 +22,18 @@ allprojects {
         google()
         mavenCentral()
     }
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.work:work-runtime:2.9.1'
+            force 'androidx.lifecycle:lifecycle-process:2.7.0'
+            force 'androidx.lifecycle:lifecycle-runtime:2.7.0'
+            force 'androidx.lifecycle:lifecycle-common:2.7.0'
+            force 'androidx.lifecycle:lifecycle-viewmodel:2.7.0'
+            force 'androidx.lifecycle:lifecycle-viewmodel-savedstate:2.7.0'
+            force 'androidx.lifecycle:lifecycle-livedata:2.7.0'
+            force 'androidx.lifecycle:lifecycle-livedata-core:2.7.0'
+        }
+    }
 }
 
 task clean(type: Delete) {

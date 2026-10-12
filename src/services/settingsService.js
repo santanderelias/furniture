@@ -4,6 +4,7 @@ const SETTINGS_KEY = 'furniture_app_settings';
 
 const defaultSettings = {
   theme: 'light',      // 'light' | 'dark'
+  simpleMode: true,    // boolean (default true)
   showStock: true,     // boolean
   language: 'es',      // 'es' | 'en'
   workshopName: "Leo Woodcrafts & Muebles",
@@ -62,6 +63,9 @@ export const settingsService = {
     if (key === 'theme') {
       this.applyTheme(value);
     }
+    if (key === 'simpleMode') {
+      this.applySimpleMode(value);
+    }
     window.dispatchEvent(new CustomEvent('app-settings-changed', { detail: current }));
     return current;
   },
@@ -77,8 +81,20 @@ export const settingsService = {
     }
   },
 
+  applySimpleMode(enabled) {
+    const isSimple = enabled !== false;
+    if (isSimple) {
+      document.documentElement.setAttribute('data-simple-mode', 'true');
+      document.body.classList.add('simple-mode');
+    } else {
+      document.documentElement.removeAttribute('data-simple-mode');
+      document.body.classList.remove('simple-mode');
+    }
+  },
+
   init() {
     const settings = this.getSettings();
     this.applyTheme(settings.theme);
+    this.applySimpleMode(settings.simpleMode !== false);
   }
 };

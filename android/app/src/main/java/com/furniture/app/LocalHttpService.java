@@ -488,8 +488,48 @@ public class LocalHttpService extends Service {
             }
         }
 
+        private File getActiveDynamicBundleDir() {
+            try {
+                // 1. Check Capacitor's WebView SharedPreferences (serverBasePath)
+                android.content.SharedPreferences prefs = context.getSharedPreferences("WebViewSettings", Context.MODE_PRIVATE);
+                String serverBasePath = prefs.getString("serverBasePath", null);
+                if (serverBasePath != null && !serverBasePath.trim().isEmpty() && !serverBasePath.equals("public")) {
+                    File candidate = new File(serverBasePath);
+                    if (candidate.exists() && candidate.isDirectory() && new File(candidate, "index.html").exists()) {
+                        return candidate;
+                    }
+                }
+
+                // 2. Check plugin's versions directories
+                String[] potentialDirNames = new String[] { "versions", "capgo_versions" };
+                for (String dirName : potentialDirNames) {
+                    File versionsRoot = new File(context.getFilesDir(), dirName);
+                    if (versionsRoot.exists() && versionsRoot.isDirectory()) {
+                        File[] bundleDirs = versionsRoot.listFiles();
+                        if (bundleDirs != null && bundleDirs.length > 0) {
+                            File newestBundle = null;
+                            long newestTime = -1;
+                            for (File b : bundleDirs) {
+                                if (b.isDirectory() && new File(b, "index.html").exists()) {
+                                    if (b.lastModified() > newestTime) {
+                                        newestTime = b.lastModified();
+                                        newestBundle = b;
+                                    }
+                                }
+                            }
+                            if (newestBundle != null) {
+                                return newestBundle;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Error checking active dynamic bundle directory", e);
+            }
+            return null;
+        }
+
         private Response handleStaticAsset(String uri) {
-            AssetManager assetManager = context.getAssets();
             String path = uri;
 
             if (path == null || path.isEmpty() || path.equals("/")) {
@@ -504,6 +544,34 @@ public class LocalHttpService extends Service {
                 path = path.substring(0, qIndex);
             }
 
+            File dynamicBundleDir = getActiveDynamicBundleDir();
+            if (dynamicBundleDir != null) {
+                File targetFile = new File(dynamicBundleDir, path);
+                if (targetFile.exists() && targetFile.isFile()) {
+                    try {
+                        String mimeType = getMimeType(path);
+                        return newFixedLengthResponse(Response.Status.OK, mimeType, new FileInputStream(targetFile), targetFile.length());
+                    } catch (IOException e) {
+                        Log.w(TAG, "Error reading dynamic bundle file: " + targetFile.getAbsolutePath(), e);
+                    }
+                }
+
+                // SPA fallback for dynamic bundle
+                boolean hasExtension = path.contains(".") && !path.endsWith(".html") && !path.endsWith(".htm");
+                if (!hasExtension) {
+                    File indexFile = new File(dynamicBundleDir, "index.html");
+                    if (indexFile.exists() && indexFile.isFile()) {
+                        try {
+                            return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", new FileInputStream(indexFile), indexFile.length());
+                        } catch (IOException e) {
+                            Log.w(TAG, "Error reading dynamic bundle index.html", e);
+                        }
+                    }
+                }
+            }
+
+            // Fallback to APK assets/public
+            AssetManager assetManager = context.getAssets();
             String fullAssetPath = "public/" + path;
 
             try {
