@@ -5,18 +5,19 @@ import { i18nService } from './i18nService.js';
 const DEFAULT_OTA_BASE_URL = 'https://santanderelias.github.io/furniture/';
 const GITHUB_OWNER = 'santanderelias';
 const GITHUB_REPO = 'furniture';
-const DEFAULT_VERSION = '1.0.0';
+export const APP_BASE_VERSION = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '') || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_APP_VERSION) || '1.0.0';
 const STORED_VERSION_KEY = 'furniture_active_web_version';
 
 /**
  * Normalizes a semver tag string like "v1.0.1" -> "1.0.1"
  */
-function cleanVersion(v) {
-  if (!v || typeof v !== 'string') return DEFAULT_VERSION;
+export function cleanVersion(v) {
+  if (!v || typeof v !== 'string') return APP_BASE_VERSION;
   return v.trim().replace(/^v/i, '');
 }
 
 /**
+ * Compares two semver-like version strings
  * Returns:
  *  1 if v1 > v2
  * -1 if v1 < v2
@@ -79,39 +80,45 @@ export const updaterService = {
    * Gets current active bundle/web version
    */
   async getCurrentVersion() {
-    try {
-      const current = await CapacitorUpdater.current();
-      if (current?.bundle?.version && current.bundle.version !== 'builtin' && current.bundle.version.trim() !== '') {
-        return current.bundle.version;
+    if (isNativePlatform()) {
+      try {
+        const current = await CapacitorUpdater.current();
+        if (current?.bundle?.version && current.bundle.version !== 'builtin' && current.bundle.version.trim() !== '') {
+          return cleanVersion(current.bundle.version);
+        }
+      } catch (e) {
+        // Ignore native error
       }
-    } catch (e) {
-      // Ignore web/unsupported
+
+      try {
+        const pluginVer = await CapacitorUpdater.getPluginVersion();
+        if (pluginVer?.version && pluginVer.version !== 'default') {
+          return cleanVersion(pluginVer.version);
+        }
+      } catch (e) {
+        // Ignore
+      }
+    } else {
+      const stored = localStorage.getItem(STORED_VERSION_KEY);
+      if (stored) return cleanVersion(stored);
     }
 
-    try {
-      const pluginVer = await CapacitorUpdater.getPluginVersion();
-      if (pluginVer?.version && pluginVer.version !== 'default') {
-        return pluginVer.version;
-      }
-    } catch (e) {
-      // Ignore
-    }
-
-    const stored = localStorage.getItem(STORED_VERSION_KEY);
-    if (stored) return stored;
-
-    return DEFAULT_VERSION;
+    return APP_BASE_VERSION;
   },
 
   /**
-   * Checks for updates from the configured OTA URL (version.json)
-   * with fallback to GitHub Releases API.
+   * Checks for updates from the configured OTA URL (version.json).
+   * Returns a result object indicating success or error, along with both versions.
    */
   async checkForUpdates({ otaUrl = null, owner = GITHUB_OWNER, repo = GITHUB_REPO } = {}) {
     const currentVersion = await this.getCurrentVersion();
     const { baseUrl, versionUrl } = getOtaEndpoints(otaUrl);
 
-    // 1. Try static JSON version check from configured URL (GitHub Pages / CDN)
+    let serverData = null;
+    let fetchError = null;
+    let attemptedSource = versionUrl;
+
+    // 1. Fetch static version.json with cache busting
     try {
       const cacheBustUrl = versionUrl.includes('?') 
         ? `${versionUrl}&_t=${Date.now()}` 
@@ -121,79 +128,110 @@ export const updaterService = {
         cache: 'no-store',
         headers: {
           'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache'
         }
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const latestVersion = data.version || data.tag_name || data.latestVersion || '';
-        
-        let assetUrl = data.url || data.zip || data.assetUrl || data.downloadUrl || '';
-        if (assetUrl) {
-          try {
-            assetUrl = new URL(assetUrl, baseUrl).href;
-          } catch (e) {
-            // Keep as-is if URL constructor fails
+      if (!res.ok) {
+        fetchError = new Error(`El servidor respondió con código HTTP ${res.status} (${res.statusText || 'Error'}) al consultar ${versionUrl}`);
+      } else {
+        try {
+          serverData = await res.json();
+          attemptedSource = versionUrl;
+        } catch (jsonErr) {
+          fetchError = new Error(`La respuesta de ${versionUrl} no es un JSON válido (${jsonErr.message})`);
+        }
+      }
+    } catch (netErr) {
+      console.warn(`[Updater] Static version check at ${versionUrl} failed:`, netErr);
+      fetchError = netErr;
+    }
+
+    // 2. Fallback to GitHub Releases API if static version.json failed
+    if (!serverData && owner && repo) {
+      try {
+        const ghEndpoint = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+        const res = await fetch(ghEndpoint, {
+          headers: {
+            Accept: 'application/vnd.github.v3+json'
           }
-        } else {
-          assetUrl = `${baseUrl}dist.zip`;
-        }
+        });
 
-        const hasNewer = compareSemver(latestVersion, currentVersion) > 0;
-        return {
-          updateAvailable: hasNewer,
-          currentVersion,
-          latestVersion,
-          assetUrl,
-          releaseName: data.name || (latestVersion ? `Versión ${cleanVersion(latestVersion)}` : 'Actualización OTA'),
-          publishedAt: data.buildDate || data.releaseDate || data.published_at || null,
-          releaseNotes: data.notes || data.description || '',
-          source: versionUrl
-        };
+        if (res.ok) {
+          const release = await res.json();
+          const assets = Array.isArray(release.assets) ? release.assets : [];
+          const distAsset = assets.find(a => a.name === 'dist.zip');
+          if (distAsset) {
+            serverData = {
+              version: release.tag_name || release.name || '',
+              url: distAsset.browser_download_url,
+              name: release.name || release.tag_name,
+              published_at: release.published_at,
+              notes: release.body || ''
+            };
+            attemptedSource = ghEndpoint;
+            fetchError = null;
+          }
+        }
+      } catch (ghErr) {
+        console.warn('[Updater] GitHub Releases fallback check failed:', ghErr);
       }
-    } catch (err) {
-      console.warn(`[Updater] Static version check at ${versionUrl} failed:`, err);
     }
 
-    // 2. Fallback to GitHub Releases API if static version.json was not found
-    try {
-      const endpoint = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
-      const res = await fetch(endpoint, {
-        headers: {
-          Accept: 'application/vnd.github.v3+json'
-        }
-      });
-
-      if (res.ok) {
-        const release = await res.json();
-        const latestVersion = release.tag_name || release.name || '';
-        const assets = Array.isArray(release.assets) ? release.assets : [];
-        const distAsset = assets.find(a => a.name === 'dist.zip');
-
-        if (distAsset) {
-          const hasNewer = compareSemver(latestVersion, currentVersion) > 0;
-          return {
-            updateAvailable: hasNewer,
-            currentVersion,
-            latestVersion,
-            assetUrl: distAsset.browser_download_url,
-            releaseName: release.name || release.tag_name,
-            publishedAt: release.published_at,
-            releaseNotes: release.body || '',
-            source: endpoint
-          };
-        }
-      }
-    } catch (ghErr) {
-      console.warn('[Updater] GitHub Releases fallback check failed:', ghErr);
+    // 3. If still no server data, report error explicitly
+    if (!serverData) {
+      const errorMessage = fetchError?.message || `No se pudo conectar con el servidor de actualizaciones (${versionUrl})`;
+      return {
+        success: false,
+        error: errorMessage,
+        currentVersion,
+        serverVersion: null,
+        source: attemptedSource,
+        updateAvailable: false
+      };
     }
+
+    // 4. Validate version in server response
+    const rawLatest = serverData.version || serverData.tag_name || serverData.latestVersion || '';
+    if (!rawLatest) {
+      return {
+        success: false,
+        error: `El archivo version.json no especifica un número de versión ("version").`,
+        currentVersion,
+        serverVersion: null,
+        source: attemptedSource,
+        updateAvailable: false
+      };
+    }
+
+    const serverVersion = cleanVersion(rawLatest);
+
+    // Resolve download asset URL
+    let assetUrl = serverData.url || serverData.zip || serverData.assetUrl || serverData.downloadUrl || '';
+    if (assetUrl) {
+      try {
+        assetUrl = new URL(assetUrl, baseUrl).href;
+      } catch (e) {
+        // Keep as-is
+      }
+    } else {
+      assetUrl = `${baseUrl}dist.zip`;
+    }
+
+    const hasNewer = compareSemver(serverVersion, currentVersion) > 0;
 
     return {
-      updateAvailable: false,
+      success: true,
+      updateAvailable: hasNewer,
       currentVersion,
-      message: `No se encontraron actualizaciones en ${versionUrl}`
+      serverVersion,
+      latestVersion: serverVersion,
+      assetUrl,
+      releaseName: serverData.name || `Versión ${serverVersion}`,
+      publishedAt: serverData.buildDate || serverData.releaseDate || serverData.published_at || null,
+      releaseNotes: serverData.notes || serverData.description || '',
+      source: attemptedSource
     };
   },
 
@@ -203,6 +241,19 @@ export const updaterService = {
   async downloadAndApplyUpdate(updateInfo, onProgress = null) {
     if (!updateInfo?.assetUrl) {
       throw new Error('No valid download URL provided for update.');
+    }
+
+    if (!isNativePlatform()) {
+      // Browser environment fallback simulation
+      console.log(`[Updater] Simulated web download of version ${updateInfo.latestVersion}`);
+      if (typeof onProgress === 'function') {
+        onProgress(50);
+        await new Promise(r => setTimeout(r, 200));
+        onProgress(100);
+      }
+      localStorage.setItem(STORED_VERSION_KEY, updateInfo.latestVersion);
+      this.showUpdateReadyBanner(null);
+      return { version: updateInfo.latestVersion, webSimulated: true };
     }
 
     let downloadListener = null;
@@ -249,10 +300,12 @@ export const updaterService = {
    */
   async applyAndRestart(bundle) {
     try {
-      if (bundle) {
+      if (bundle && isNativePlatform()) {
         await CapacitorUpdater.set(bundle);
-      } else {
+      } else if (isNativePlatform()) {
         await CapacitorUpdater.reload();
+      } else {
+        window.location.reload();
       }
     } catch (e) {
       console.error('[Updater] Reload failed:', e);

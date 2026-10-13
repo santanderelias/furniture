@@ -157,16 +157,26 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
           </p>
 
           <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.85rem; background:var(--bg-main); border-radius:var(--radius-md); border:1px solid var(--border);">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-              <div>
-                <div style="color:var(--text-muted); font-size:0.75rem;">Versión web activa</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:0.6rem; align-items:center;">
+              <div style="padding:0.6rem 0.75rem; background:var(--bg-card, #fff); border-radius:var(--radius-sm); border:1px solid var(--border);">
+                <div style="color:var(--text-muted); font-size:0.75rem;">Versión local</div>
                 <div style="font-weight:700; font-size:1rem; color:var(--text-main);" id="ota-current-version">
                   ${escapeHtml(activeVersion)}
                 </div>
               </div>
-              <button id="btn-check-updates" class="btn btn-primary btn-sm">
-                Buscar actualizaciones
-              </button>
+
+              <div style="padding:0.6rem 0.75rem; background:var(--bg-card, #fff); border-radius:var(--radius-sm); border:1px solid var(--border);">
+                <div style="color:var(--text-muted); font-size:0.75rem;">Versión en servidor</div>
+                <div style="font-weight:700; font-size:1rem; color:var(--text-muted);" id="ota-server-version">
+                  --
+                </div>
+              </div>
+
+              <div style="display:flex; align-items:center; justify-content:flex-end;">
+                <button id="btn-check-updates" class="btn btn-primary btn-sm" style="white-space:nowrap; width:100%;">
+                  Buscar actualizaciones
+                </button>
+              </div>
             </div>
 
             <div style="font-size:0.75rem; color:var(--text-muted); word-break:break-all;">
@@ -207,29 +217,148 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
 
     checkUpdatesBtn?.addEventListener('click', async () => {
       checkUpdatesBtn.disabled = true;
+      const serverVersionEl = container.querySelector('#ota-server-version');
       if (statusArea) {
         statusArea.style.display = 'block';
-        statusArea.innerHTML = `<span style="color:var(--text-muted);">${escapeHtml(i18nService.text('Buscando actualizaciones...'))}</span>`;
+        statusArea.innerHTML = `
+          <div style="display:flex; align-items:center; gap:0.5rem; color:var(--text-muted);">
+            <span style="display:inline-block; width:12px; height:12px; border:2px solid var(--accent); border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+            <span>${escapeHtml(i18nService.text('Consultando servidor de actualizaciones...'))}</span>
+          </div>
+        `;
       }
+
       try {
         const updateInfo = await updaterService.checkForUpdates();
-        if (!updateInfo.updateAvailable) {
-          if (statusArea) {
-            statusArea.innerHTML = `<span style="color:var(--success); font-weight:600;">✓ ${escapeHtml(i18nService.text('La aplicación está actualizada'))} (${escapeHtml(updateInfo.currentVersion)})</span>`;
+
+        // 1. ERROR: Can't fetch or error occurred
+        if (!updateInfo.success) {
+          if (serverVersionEl) {
+            serverVersionEl.textContent = i18nService.text('Error al conectar');
+            serverVersionEl.style.color = 'var(--danger)';
           }
-          window.showToast?.(i18nService.text('La aplicación está actualizada'));
-        } else {
           if (statusArea) {
             statusArea.innerHTML = `
-              <div style="margin-bottom:0.5rem;">
-                <strong style="color:var(--accent);">🎉 ${escapeHtml(i18nService.text('Nueva versión disponible'))}: ${escapeHtml(updateInfo.latestVersion)}</strong>
-                <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.2rem;">
-                  ${escapeHtml(updateInfo.releaseName || '')}
+              <div style="background:rgba(231, 76, 60, 0.12); border:1px solid var(--danger); border-radius:var(--radius-sm); padding:0.75rem 0.85rem;">
+                <div style="color:var(--danger); font-weight:700; margin-bottom:0.35rem; display:flex; align-items:center; gap:0.4rem;">
+                  <span>⚠️</span>
+                  <span>${escapeHtml(i18nService.text('Error al verificar actualizaciones'))}</span>
+                </div>
+                <div style="font-size:0.8rem; color:var(--text-main); margin-bottom:0.4rem; word-break:break-word;">
+                  ${escapeHtml(updateInfo.error || 'No se pudo obtener información del servidor.')}
+                </div>
+                <div style="font-size:0.75rem; color:var(--text-muted); display:flex; flex-direction:column; gap:0.15rem;">
+                  <div><strong>${escapeHtml(i18nService.text('Versión local:'))}</strong> ${escapeHtml(updateInfo.currentVersion)}</div>
+                  <div><strong>${escapeHtml(i18nService.text('URL consultada:'))}</strong> <code style="word-break:break-all;">${escapeHtml(updateInfo.source || '')}</code></div>
+                  <div style="margin-top:0.2rem; color:var(--text-muted); font-style:italic;">
+                    ${escapeHtml(i18nService.text('Verificá tu conexión a internet o que version.json esté publicado en el servidor.'))}
+                  </div>
                 </div>
               </div>
-              <button id="btn-download-dist" class="btn btn-primary btn-sm">
-                ${escapeHtml(i18nService.text('Descargar actualización'))}
-              </button>
+            `;
+          }
+          window.showToast?.(updateInfo.error || 'Error al buscar actualizaciones');
+          return;
+        }
+
+        // Update server version indicator
+        if (serverVersionEl) {
+          serverVersionEl.textContent = updateInfo.serverVersion;
+          serverVersionEl.style.color = updateInfo.updateAvailable ? 'var(--accent)' : 'var(--text-main)';
+        }
+
+        // 2. EQUAL: Up to date (both versions are equal)
+        if (!updateInfo.updateAvailable) {
+          if (statusArea) {
+            statusArea.innerHTML = `
+              <div style="background:rgba(46, 204, 113, 0.12); border:1px solid var(--success); border-radius:var(--radius-sm); padding:0.75rem 0.85rem;">
+                <div style="color:var(--success); font-weight:700; margin-bottom:0.35rem; display:flex; align-items:center; gap:0.4rem;">
+                  <span>✓</span>
+                  <span>${escapeHtml(i18nService.text('La aplicación está al día'))}</span>
+                </div>
+                <div style="display:flex; gap:1.25rem; flex-wrap:wrap; font-size:0.825rem; color:var(--text-main); margin-bottom:0.35rem;">
+                  <div>
+                    <span style="color:var(--text-muted);">${escapeHtml(i18nService.text('Versión local:'))}</span>
+                    <strong style="margin-left:0.25rem;">${escapeHtml(updateInfo.currentVersion)}</strong>
+                  </div>
+                  <div>
+                    <span style="color:var(--text-muted);">${escapeHtml(i18nService.text('Versión servidor:'))}</span>
+                    <strong style="margin-left:0.25rem;">${escapeHtml(updateInfo.serverVersion)}</strong>
+                  </div>
+                </div>
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.4rem;">
+                  ${escapeHtml(i18nService.text('Ambas versiones coinciden. No hay nuevas actualizaciones disponibles.'))}
+                </div>
+                <div style="display:flex; justify-content:flex-end;">
+                  <button type="button" id="btn-force-download-dist" class="btn btn-outline btn-sm" style="font-size:0.75rem; padding:0.25rem 0.55rem;">
+                    ${escapeHtml(i18nService.text('Reinstalar versión del servidor'))}
+                  </button>
+                </div>
+              </div>
+            `;
+
+            // Attach force reinstall listener
+            container.querySelector('#btn-force-download-dist')?.addEventListener('click', async (event) => {
+              const downloadBtn = event.currentTarget;
+              downloadBtn.disabled = true;
+              if (progressWrapper) progressWrapper.style.display = 'block';
+              if (progressBar) progressBar.style.width = '0%';
+              if (progressPct) progressPct.textContent = '0%';
+
+              try {
+                const bundle = await updaterService.downloadAndApplyUpdate(updateInfo, (percent) => {
+                  if (progressBar) progressBar.style.width = `${percent}%`;
+                  if (progressPct) progressPct.textContent = `${percent}%`;
+                });
+                if (statusArea) {
+                  statusArea.innerHTML = `
+                    <div style="color:var(--success); font-weight:700; margin-bottom:0.35rem;">
+                      ✓ ${escapeHtml(i18nService.text('Actualización lista'))}
+                    </div>
+                    <button id="btn-restart-now" class="btn btn-primary btn-sm">
+                      ${escapeHtml(i18nService.text('Reiniciar app'))}
+                    </button>
+                  `;
+                  container.querySelector('#btn-restart-now')?.addEventListener('click', async () => {
+                    await updaterService.applyAndRestart(bundle);
+                  });
+                }
+              } catch (downloadErr) {
+                alert('Error al descargar: ' + (downloadErr.message || downloadErr));
+                if (progressWrapper) progressWrapper.style.display = 'none';
+                downloadBtn.disabled = false;
+              }
+            });
+          }
+          window.showToast?.(i18nService.text('La aplicación está al día'));
+        } else {
+          // 3. NEWER VERSION: Update available
+          if (statusArea) {
+            statusArea.innerHTML = `
+              <div style="background:rgba(52, 152, 219, 0.12); border:1px solid var(--accent); border-radius:var(--radius-sm); padding:0.75rem 0.85rem;">
+                <div style="color:var(--accent); font-weight:700; margin-bottom:0.35rem; display:flex; align-items:center; gap:0.4rem;">
+                  <span>🎉</span>
+                  <span>${escapeHtml(i18nService.text('Nueva versión disponible'))}</span>
+                </div>
+                <div style="display:flex; gap:1.25rem; flex-wrap:wrap; font-size:0.825rem; color:var(--text-main); margin-bottom:0.4rem;">
+                  <div>
+                    <span style="color:var(--text-muted);">${escapeHtml(i18nService.text('Versión local:'))}</span>
+                    <strong style="margin-left:0.25rem;">${escapeHtml(updateInfo.currentVersion)}</strong>
+                  </div>
+                  <div>
+                    <span style="color:var(--text-muted);">${escapeHtml(i18nService.text('Versión servidor:'))}</span>
+                    <strong style="margin-left:0.25rem; color:var(--accent); font-size:0.95rem;">${escapeHtml(updateInfo.serverVersion)}</strong>
+                  </div>
+                </div>
+                ${updateInfo.releaseNotes ? `
+                  <div style="font-size:0.775rem; color:var(--text-muted); margin-bottom:0.5rem; padding:0.4rem 0.6rem; background:var(--bg-main); border-radius:var(--radius-sm);">
+                    ${escapeHtml(updateInfo.releaseNotes)}
+                  </div>
+                ` : ''}
+                <button id="btn-download-dist" class="btn btn-primary btn-sm">
+                  ${escapeHtml(i18nService.text('Descargar actualización'))} (v${escapeHtml(updateInfo.serverVersion)})
+                </button>
+              </div>
             `;
 
             container.querySelector('#btn-download-dist')?.addEventListener('click', async (event) => {
@@ -266,9 +395,23 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
           }
         }
       } catch (err) {
-        if (statusArea) {
-          statusArea.innerHTML = `<span style="color:var(--danger);">Error: ${escapeHtml(err.message || 'No se pudo verificar actualizaciones')}</span>`;
+        if (serverVersionEl) {
+          serverVersionEl.textContent = i18nService.text('Error');
+          serverVersionEl.style.color = 'var(--danger)';
         }
+        if (statusArea) {
+          statusArea.innerHTML = `
+            <div style="background:rgba(231, 76, 60, 0.12); border:1px solid var(--danger); border-radius:var(--radius-sm); padding:0.75rem 0.85rem;">
+              <div style="color:var(--danger); font-weight:700; margin-bottom:0.25rem;">
+                ⚠️ ${escapeHtml(i18nService.text('Error inesperado al buscar actualizaciones'))}
+              </div>
+              <div style="font-size:0.8rem; color:var(--text-main);">
+                ${escapeHtml(err.message || String(err))}
+              </div>
+            </div>
+          `;
+        }
+        window.showToast?.(`Error: ${err.message || String(err)}`);
       } finally {
         checkUpdatesBtn.disabled = false;
       }

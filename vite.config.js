@@ -1,5 +1,8 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { readFileSync } from 'fs';
+
+const pkg = JSON.parse(readFileSync(resolve('package.json'), 'utf-8'));
 
 function developmentApi() {
   const now = new Date().toISOString();
@@ -165,6 +168,9 @@ function developmentApi() {
 export default defineConfig({
   root: resolve('src'),
   envDir: resolve('.'),
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version || '1.0.0')
+  },
   plugins: [developmentApi()],
   build: {
     outDir: resolve('dist'),

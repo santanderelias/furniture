@@ -47,8 +47,11 @@ else
   npm install
 fi
 
+app_version="$(node -p "require('./package.json').version" 2>/dev/null || echo "1.0.0")"
+export VITE_APP_VERSION="$app_version"
+
 # Build web frontend
-printf '\n==> Building web assets with Vite...\n'
+printf '\n==> Building web assets with Vite (v%s)...\n' "$app_version"
 npm run build
 
 # Sync web assets to Capacitor Android
@@ -57,7 +60,6 @@ npx cap sync android
 
 # Package OTA update assets (dist.zip and version.json)
 printf '\n==> Packaging OTA Live Update assets (dist.zip & version.json)...\n'
-app_version="$(node -p "require('./package.json').version" 2>/dev/null || echo "1.0.0")"
 ota_base_url="${VITE_OTA_UPDATE_URL:-${OTA_UPDATE_URL:-https://santanderelias.github.io/furniture/}}"
 [[ "$ota_base_url" != */ ]] && ota_base_url="${ota_base_url}/"
 
@@ -84,10 +86,13 @@ cat <<EOF > "$script_dir/version.json"
 }
 EOF
 
-# Also keep copies inside dist/ for direct GitHub Pages publishing
+# Output OTA bundle and manifest directly into docs/ (GitHub Pages root folder)
+mkdir -p "$script_dir/docs"
 if [[ -f "$script_dir/dist.zip" ]]; then
+  cp "$script_dir/dist.zip" "$script_dir/docs/dist.zip"
   cp "$script_dir/dist.zip" "$script_dir/dist/dist.zip"
 fi
+cp "$script_dir/version.json" "$script_dir/docs/version.json"
 cp "$script_dir/version.json" "$script_dir/dist/version.json"
 
 # Build Android APK
@@ -111,8 +116,8 @@ printf '\n=======================================================\n'
 printf ' BUILD COMPLETED SUCCESSFULLY\n'
 printf '=======================================================\n'
 printf ' Android APK:       %s\n' "$apk_path"
-printf ' OTA Bundle:        %s\n' "$script_dir/dist.zip"
-printf ' OTA Manifest:      %s\n' "$script_dir/version.json"
+printf ' GitHub Pages OTA:  %s\n' "$script_dir/docs/dist.zip"
+printf ' OTA Manifest:      %s\n' "$script_dir/docs/version.json"
 printf ' OTA Target URL:    %s\n' "$ota_base_url"
 printf ' App Version:       %s\n' "$app_version"
 printf '=======================================================\n'
