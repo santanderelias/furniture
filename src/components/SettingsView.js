@@ -169,6 +169,11 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
               </button>
             </div>
 
+            <div style="font-size:0.75rem; color:var(--text-muted); word-break:break-all;">
+              <span>Servidor OTA: </span>
+              <span style="font-family:monospace; color:var(--accent);">${escapeHtml(updaterService.getBaseUrl())}</span>
+            </div>
+
             <div id="ota-status-area" style="font-size:0.825rem; color:var(--text-muted); display:none;"></div>
 
             <div id="ota-progress-wrapper" style="display:none;">

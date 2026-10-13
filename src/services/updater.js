@@ -2,6 +2,7 @@ import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { isNativePlatform } from './dataService.js';
 import { i18nService } from './i18nService.js';
 
+const DEFAULT_OTA_BASE_URL = 'https://santanderelias.github.io/furniture/';
 const GITHUB_OWNER = 'santanderelias';
 const GITHUB_REPO = 'furniture';
 const DEFAULT_VERSION = '1.0.0';
@@ -35,7 +36,33 @@ export function compareSemver(v1, v2) {
   return 0;
 }
 
+/**
+ * Resolves base URL and version.json URL
+ */
+export function getOtaEndpoints(customUrl = null) {
+  const envUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OTA_UPDATE_URL) || DEFAULT_OTA_BASE_URL;
+  const rawUrl = (customUrl || envUrl || DEFAULT_OTA_BASE_URL).trim();
+  let baseUrl = '';
+  let versionUrl = '';
+
+  if (rawUrl.endsWith('.json')) {
+    versionUrl = rawUrl;
+    baseUrl = rawUrl.substring(0, rawUrl.lastIndexOf('/') + 1);
+  } else {
+    baseUrl = rawUrl.endsWith('/') ? rawUrl : `${rawUrl}/`;
+    versionUrl = `${baseUrl}version.json`;
+  }
+  return { baseUrl, versionUrl };
+}
+
 export const updaterService = {
+  /**
+   * Returns current configured OTA Base URL
+   */
+  getBaseUrl() {
+    return (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OTA_UPDATE_URL) || DEFAULT_OTA_BASE_URL;
+  },
+
   /**
    * Initializes updater safety contract on application boot
    */
@@ -77,54 +104,96 @@ export const updaterService = {
   },
 
   /**
-   * Checks GitHub Releases for a newer version
+   * Checks for updates from the configured OTA URL (version.json)
+   * with fallback to GitHub Releases API.
    */
-  async checkForUpdates({ owner = GITHUB_OWNER, repo = GITHUB_REPO } = {}) {
+  async checkForUpdates({ otaUrl = null, owner = GITHUB_OWNER, repo = GITHUB_REPO } = {}) {
     const currentVersion = await this.getCurrentVersion();
-    const endpoint = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+    const { baseUrl, versionUrl } = getOtaEndpoints(otaUrl);
 
-    const res = await fetch(endpoint, {
-      headers: {
-        Accept: 'application/vnd.github.v3+json'
-      }
-    });
+    // 1. Try static JSON version check from configured URL (GitHub Pages / CDN)
+    try {
+      const cacheBustUrl = versionUrl.includes('?') 
+        ? `${versionUrl}&_t=${Date.now()}` 
+        : `${versionUrl}?_t=${Date.now()}`;
 
-    if (!res.ok) {
-      if (res.status === 404) {
+      const res = await fetch(cacheBustUrl, {
+        cache: 'no-store',
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const latestVersion = data.version || data.tag_name || data.latestVersion || '';
+        
+        let assetUrl = data.url || data.zip || data.assetUrl || data.downloadUrl || '';
+        if (assetUrl) {
+          try {
+            assetUrl = new URL(assetUrl, baseUrl).href;
+          } catch (e) {
+            // Keep as-is if URL constructor fails
+          }
+        } else {
+          assetUrl = `${baseUrl}dist.zip`;
+        }
+
+        const hasNewer = compareSemver(latestVersion, currentVersion) > 0;
         return {
-          updateAvailable: false,
+          updateAvailable: hasNewer,
           currentVersion,
-          message: 'No releases found on GitHub repository.'
+          latestVersion,
+          assetUrl,
+          releaseName: data.name || (latestVersion ? `Versión ${cleanVersion(latestVersion)}` : 'Actualización OTA'),
+          publishedAt: data.buildDate || data.releaseDate || data.published_at || null,
+          releaseNotes: data.notes || data.description || '',
+          source: versionUrl
         };
       }
-      throw new Error(`GitHub Releases HTTP error: ${res.status} ${res.statusText}`);
+    } catch (err) {
+      console.warn(`[Updater] Static version check at ${versionUrl} failed:`, err);
     }
 
-    const release = await res.json();
-    const latestVersion = release.tag_name || release.name || '';
-    const assets = Array.isArray(release.assets) ? release.assets : [];
-    const distAsset = assets.find(a => a.name === 'dist.zip');
+    // 2. Fallback to GitHub Releases API if static version.json was not found
+    try {
+      const endpoint = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+      const res = await fetch(endpoint, {
+        headers: {
+          Accept: 'application/vnd.github.v3+json'
+        }
+      });
 
-    if (!distAsset) {
-      return {
-        updateAvailable: false,
-        currentVersion,
-        latestVersion,
-        message: 'Latest release found, but missing required dist.zip asset.'
-      };
+      if (res.ok) {
+        const release = await res.json();
+        const latestVersion = release.tag_name || release.name || '';
+        const assets = Array.isArray(release.assets) ? release.assets : [];
+        const distAsset = assets.find(a => a.name === 'dist.zip');
+
+        if (distAsset) {
+          const hasNewer = compareSemver(latestVersion, currentVersion) > 0;
+          return {
+            updateAvailable: hasNewer,
+            currentVersion,
+            latestVersion,
+            assetUrl: distAsset.browser_download_url,
+            releaseName: release.name || release.tag_name,
+            publishedAt: release.published_at,
+            releaseNotes: release.body || '',
+            source: endpoint
+          };
+        }
+      }
+    } catch (ghErr) {
+      console.warn('[Updater] GitHub Releases fallback check failed:', ghErr);
     }
-
-    const hasNewer = compareSemver(latestVersion, currentVersion) > 0;
 
     return {
-      updateAvailable: hasNewer,
+      updateAvailable: false,
       currentVersion,
-      latestVersion,
-      assetUrl: distAsset.browser_download_url,
-      releaseName: release.name || release.tag_name,
-      publishedAt: release.published_at,
-      releaseNotes: release.body || '',
-      distAsset
+      message: `No se encontraron actualizaciones en ${versionUrl}`
     };
   },
 

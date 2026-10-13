@@ -164,6 +164,7 @@ function developmentApi() {
 
 export default defineConfig({
   root: resolve('src'),
+  envDir: resolve('.'),
   plugins: [developmentApi()],
   build: {
     outDir: resolve('dist'),
