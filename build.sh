@@ -58,16 +58,17 @@ npm run build
 printf '\n==> Syncing assets to Capacitor Android project...\n'
 npx cap sync android
 
-# Package OTA update assets (dist.zip and version.json)
-printf '\n==> Packaging OTA Live Update assets (dist.zip & version.json)...\n'
+# Package OTA update assets directly into docs/ (GitHub Pages root folder)
+printf '\n==> Packaging OTA Live Update assets directly into docs/...\n'
 ota_base_url="${VITE_OTA_UPDATE_URL:-${OTA_UPDATE_URL:-https://santanderelias.github.io/furniture/}}"
 [[ "$ota_base_url" != */ ]] && ota_base_url="${ota_base_url}/"
+mkdir -p "$script_dir/docs"
 
-# Create dist.zip from compiled dist contents
+# Create docs/dist.zip from compiled dist contents
 if command -v zip >/dev/null 2>&1; then
   (
     cd "$script_dir/dist"
-    zip -r -q "$script_dir/dist.zip" . -x "*.zip"
+    zip -r -q "$script_dir/docs/dist.zip" . -x "*.zip"
   )
 else
   node -e "
@@ -76,8 +77,8 @@ else
   "
 fi
 
-# Create version.json manifest
-cat <<EOF > "$script_dir/version.json"
+# Create docs/version.json manifest
+cat <<EOF > "$script_dir/docs/version.json"
 {
   "version": "$app_version",
   "url": "${ota_base_url}dist.zip",
@@ -86,21 +87,17 @@ cat <<EOF > "$script_dir/version.json"
 }
 EOF
 
-# Output OTA bundle and manifest directly into docs/ (GitHub Pages root folder)
-mkdir -p "$script_dir/docs"
-if [[ -f "$script_dir/dist.zip" ]]; then
-  cp "$script_dir/dist.zip" "$script_dir/docs/dist.zip"
-  cp "$script_dir/dist.zip" "$script_dir/dist/dist.zip"
-fi
-cp "$script_dir/version.json" "$script_dir/docs/version.json"
-cp "$script_dir/version.json" "$script_dir/dist/version.json"
-
 # Build Android APK
 printf '\n==> Building Android APK (%s)...\n' "$gradle_task"
 (
   cd android
   ./gradlew "$gradle_task"
 )
+
+# Clean up temporary build artifacts (dist/ folder and root zip/manifest)
+printf '\n==> Cleaning up temporary build artifacts (dist/)...\n'
+rm -rf "$script_dir/dist"
+rm -f "$script_dir/dist.zip" "$script_dir/version.json"
 
 apk_path="$script_dir/android/app/build/outputs/apk/$apk_variant/app-$apk_variant.apk"
 if [[ ! -f "$apk_path" && "$mode" == "--prod" ]]; then
