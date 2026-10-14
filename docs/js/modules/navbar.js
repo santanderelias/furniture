@@ -45,7 +45,7 @@ export class NavbarModule {
 
     return `
       <nav class="navbar" aria-label="Main navigation">
-        <button type="button" class="navbar__brand" data-nav-id="0" title="Go home">
+        <button type="button" class="navbar__brand" data-nav-id="0" title="スタと">
           Takumi
         </button>
         <button
