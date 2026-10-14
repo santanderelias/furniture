@@ -22,17 +22,17 @@ export class HomeModule extends Module {
   render() {
     return `
       <section class="hero" aria-labelledby="hero-title">
-        <h1 id="hero-title">Takumi Home.</h1>
+        <h1 id="hero-title">Build modular. Stay simple.</h1>
         <p>
           A mobile-first single-page app with one HTML file, one CSS file,
           and JavaScript modules orchestrated for clean navigation.
         </p>
         <div class="hero__actions">
           <button type="button" class="btn btn--primary" data-go="1">
-            Btn One
+            Explore Section 1
           </button>
           <button type="button" class="btn btn--secondary" data-go="99">
-            Settings
+            Open Settings
           </button>
         </div>
       </section>
