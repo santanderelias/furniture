@@ -7,6 +7,9 @@
     "androidScheme": "http"
   },
   "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
     "CapacitorUpdater": {
       "autoUpdate": false
     }
