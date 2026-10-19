@@ -3,10 +3,12 @@ import { i18nService } from '../services/i18nService.js';
 
 export function renderDesktopBanner(container, serverInfo, onToggleCallback) {
   const isRunning = Boolean(serverInfo?.isRunning);
+  //const isRunning = isNativePlatform();
   const ip = serverInfo?.ip || '127.0.0.1';
   const port = serverInfo?.port || 8080;
   const serverUrl = `http://${ip}:${port}`;
   const isNative = isNativePlatform();
+  //const isNative = Boolean(serverInfo?.isRunning);
 
   let html = '';
 
@@ -14,7 +16,7 @@ export function renderDesktopBanner(container, serverInfo, onToggleCallback) {
     html = `
       <div class="server-compact-bar">
         <div class="server-info-title">
-          <span class="status-indicator active"><span class="pulse-dot"></span> Conectado</span>
+          <span class="status-indicator active"><span class="pulse-dot"></span> Cliente Web Habilitado</span>
           <span class="server-text">Servidor del teléfono: <code>${serverUrl}</code></span>
         </div>
         <button id="btn-copy-url" class="btn btn-outline btn-sm">Copiar enlace</button>
@@ -23,11 +25,7 @@ export function renderDesktopBanner(container, serverInfo, onToggleCallback) {
   } else if (!isRunning) {
     html = `
       <div class="server-compact-bar">
-        <div class="server-info-title">
-          <span class="status-indicator inactive"><span class="pulse-dot"></span> Inactivo</span>
-          <span class="server-text">Acceso desde otros dispositivos</span>
-        </div>
-        <button id="btn-toggle-server" class="btn btn-outline btn-sm">Activar y mostrar datos</button>
+        <span id="btn-toggle-server" class="status-indicator inactive btn btn-outline btn-sm"><span class="pulse-dot"></span>Habilitar Web</span>
       </div>
     `;
   } else {
