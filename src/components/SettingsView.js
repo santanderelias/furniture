@@ -37,7 +37,7 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
           </div>
         </div>
 
-        <!-- Modo de visualización / Simple Mode -->
+        <!-- Modo de visualización / Simple Mode 
         <div class="card-table-wrapper" style="padding: 1.25rem;">
           <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.35rem;">Modo de visualización</h3>
           <p style="font-size:0.825rem; color:var(--text-muted); margin-bottom:1rem;">
@@ -56,7 +56,7 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
               <span class="slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${settings.simpleMode !== false ? 'var(--accent)' : '#cbd5e1'}; transition:0.3s; border-radius:34px;"></span>
             </label>
           </div>
-        </div>
+        </div> -->
 
         <!-- Apariencia -->
         <div class="card-table-wrapper" style="padding: 1.25rem;">
@@ -90,7 +90,7 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
           <button id="export-data-btn" class="btn btn-outline btn-sm">Exportar datos</button>
         </div>
 
-        <!-- Opciones de catálogo -->
+        <!-- Opciones de catálogo 
         <div class="card-table-wrapper" style="padding: 1.25rem;">
           <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.35rem;">Opciones de catálogo e inventario</h3>
           <p style="font-size:0.825rem; color:var(--text-muted); margin-bottom:1rem;">
@@ -109,7 +109,7 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
               <span class="slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${settings.showStock ? 'var(--accent)' : '#cbd5e1'}; transition:0.3s; border-radius:34px;"></span>
             </label>
           </div>
-        </div>
+        </div> -->
 
         <!-- Diagnóstico y red -->
         <div class="card-table-wrapper" style="padding: 1.25rem;">

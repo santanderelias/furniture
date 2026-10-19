@@ -1,6 +1,6 @@
 {
   "name": "furniture-app",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Local Furniture Business Management System with Capacitor, SQLite & Embedded HTTP Server",
   "private": true,
   "type": "module",
