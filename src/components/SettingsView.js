@@ -267,6 +267,78 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
           serverVersionEl.style.color = updateInfo.updateAvailable ? 'var(--accent)' : 'var(--text-main)';
         }
 
+        const executeDownload = async (btn) => {
+          btn.disabled = true;
+          if (progressWrapper) progressWrapper.style.display = 'block';
+          if (progressBar) progressBar.style.width = '0%';
+          if (progressPct) progressPct.textContent = '0%';
+
+          try {
+            const bundle = await updaterService.downloadAndApplyUpdate(updateInfo, (percent) => {
+              if (progressBar) progressBar.style.width = `${percent}%`;
+              if (progressPct) progressPct.textContent = `${percent}%`;
+            });
+
+            if (statusArea) {
+              statusArea.innerHTML = `
+                <div style="background:rgba(46, 204, 113, 0.12); border:1px solid var(--success); border-radius:var(--radius-sm); padding:0.85rem 1rem;">
+                  <div style="color:var(--success); font-weight:700; margin-bottom:0.35rem; display:flex; align-items:center; gap:0.4rem;">
+                    <span>✓</span>
+                    <span>${escapeHtml(i18nService.text('Actualización lista para aplicar'))}</span>
+                  </div>
+                  <div style="font-size:0.825rem; color:var(--text-main); margin-bottom:0.5rem;">
+                    ${escapeHtml(i18nService.text('Los archivos de la versión'))} <strong>${escapeHtml(updateInfo.latestVersion)}</strong> ${escapeHtml(i18nService.text('fueron descargados y verificados con éxito.'))}
+                  </div>
+                  <button id="btn-restart-now" class="btn btn-primary btn-sm">
+                    ${escapeHtml(i18nService.text('Reiniciar app ahora'))}
+                  </button>
+                </div>
+              `;
+              container.querySelector('#btn-restart-now')?.addEventListener('click', async () => {
+                await updaterService.applyAndRestart(bundle);
+              });
+            }
+          } catch (downloadErr) {
+            console.error('[Settings] Download failed:', downloadErr);
+            if (progressWrapper) progressWrapper.style.display = 'none';
+            btn.disabled = false;
+
+            const detail = downloadErr.detail || {};
+            const categoryTitle = detail.category === 'CHECKSUM_MISMATCH'
+              ? 'Fallo de verificación de integridad (Checksum SHA-256)'
+              : detail.category === 'CHECKSUM_MISSING'
+              ? 'Falta firma criptográfica (Checksum requerido)'
+              : detail.category === 'FILE_NOT_FOUND'
+              ? 'Archivo no encontrado en el servidor (HTTP 404)'
+              : detail.category === 'NETWORK_ERROR'
+              ? 'Error de conexión de red'
+              : 'Error al descargar la actualización';
+
+            if (statusArea) {
+              statusArea.innerHTML = `
+                <div style="background:rgba(231, 76, 60, 0.12); border:1px solid var(--danger); border-radius:var(--radius-sm); padding:0.85rem 1rem;">
+                  <div style="color:var(--danger); font-weight:700; margin-bottom:0.4rem; display:flex; align-items:center; gap:0.4rem;">
+                    <span>⚠️</span>
+                    <span>${escapeHtml(i18nService.text(categoryTitle))}</span>
+                  </div>
+                  <div style="font-size:0.825rem; color:var(--text-main); margin-bottom:0.5rem; word-break:break-word; font-weight:600;">
+                    ${escapeHtml(detail.reason || downloadErr.message || 'Error en la descarga')}
+                  </div>
+                  <div style="font-size:0.75rem; color:var(--text-muted); display:flex; flex-direction:column; gap:0.3rem; background:rgba(0,0,0,0.06); padding:0.6rem 0.75rem; border-radius:var(--radius-xs);">
+                    <div><strong>URL de descarga:</strong> <code style="word-break:break-all;">${escapeHtml(detail.url || updateInfo.assetUrl)}</code></div>
+                    <div><strong>Versión destino:</strong> ${escapeHtml(updateInfo.latestVersion)}</div>
+                    <div><strong>Checksum esperado (SHA-256):</strong> <code style="word-break:break-all;">${escapeHtml(detail.expectedChecksum || updateInfo.checksum || 'No especificado')}</code></div>
+                    ${detail.actualChecksum ? `<div><strong>Checksum real calculado:</strong> <code style="word-break:break-all; color:var(--danger); font-weight:bold;">${escapeHtml(detail.actualChecksum)}</code></div>` : ''}
+                    ${detail.httpStatus ? `<div><strong>Código HTTP servidor:</strong> ${escapeHtml(String(detail.httpStatus))}</div>` : ''}
+                    ${detail.recommendation ? `<div style="margin-top:0.25rem; color:var(--text-main); font-style:italic;"><strong>Sugerencia:</strong> ${escapeHtml(detail.recommendation)}</div>` : ''}
+                  </div>
+                </div>
+              `;
+            }
+            window.showToast?.(`Error: ${detail.reason || downloadErr.message}`);
+          }
+        };
+
         // 2. EQUAL: Up to date (both versions are equal)
         if (!updateInfo.updateAvailable) {
           if (statusArea) {
@@ -298,37 +370,7 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
             `;
 
             // Attach force reinstall listener
-            container.querySelector('#btn-force-download-dist')?.addEventListener('click', async (event) => {
-              const downloadBtn = event.currentTarget;
-              downloadBtn.disabled = true;
-              if (progressWrapper) progressWrapper.style.display = 'block';
-              if (progressBar) progressBar.style.width = '0%';
-              if (progressPct) progressPct.textContent = '0%';
-
-              try {
-                const bundle = await updaterService.downloadAndApplyUpdate(updateInfo, (percent) => {
-                  if (progressBar) progressBar.style.width = `${percent}%`;
-                  if (progressPct) progressPct.textContent = `${percent}%`;
-                });
-                if (statusArea) {
-                  statusArea.innerHTML = `
-                    <div style="color:var(--success); font-weight:700; margin-bottom:0.35rem;">
-                      ✓ ${escapeHtml(i18nService.text('Actualización lista'))}
-                    </div>
-                    <button id="btn-restart-now" class="btn btn-primary btn-sm">
-                      ${escapeHtml(i18nService.text('Reiniciar app'))}
-                    </button>
-                  `;
-                  container.querySelector('#btn-restart-now')?.addEventListener('click', async () => {
-                    await updaterService.applyAndRestart(bundle);
-                  });
-                }
-              } catch (downloadErr) {
-                alert('Error al descargar: ' + (downloadErr.message || downloadErr));
-                if (progressWrapper) progressWrapper.style.display = 'none';
-                downloadBtn.disabled = false;
-              }
-            });
+            container.querySelector('#btn-force-download-dist')?.addEventListener('click', (e) => executeDownload(e.currentTarget));
           }
           window.showToast?.(i18nService.text('La aplicación está al día'));
         } else {
@@ -361,37 +403,7 @@ export function renderSettingsView(container, { onRefresh, openExport = false } 
               </div>
             `;
 
-            container.querySelector('#btn-download-dist')?.addEventListener('click', async (event) => {
-              const downloadBtn = event.currentTarget;
-              downloadBtn.disabled = true;
-              if (progressWrapper) progressWrapper.style.display = 'block';
-              if (progressBar) progressBar.style.width = '0%';
-              if (progressPct) progressPct.textContent = '0%';
-
-              try {
-                const bundle = await updaterService.downloadAndApplyUpdate(updateInfo, (percent) => {
-                  if (progressBar) progressBar.style.width = `${percent}%`;
-                  if (progressPct) progressPct.textContent = `${percent}%`;
-                });
-                if (statusArea) {
-                  statusArea.innerHTML = `
-                    <div style="color:var(--success); font-weight:700; margin-bottom:0.35rem;">
-                      ✓ ${escapeHtml(i18nService.text('Actualización lista'))}
-                    </div>
-                    <button id="btn-restart-now" class="btn btn-primary btn-sm">
-                      ${escapeHtml(i18nService.text('Reiniciar app'))}
-                    </button>
-                  `;
-                  container.querySelector('#btn-restart-now')?.addEventListener('click', async () => {
-                    await updaterService.applyAndRestart(bundle);
-                  });
-                }
-              } catch (downloadErr) {
-                alert('Error al descargar la actualización: ' + (downloadErr.message || downloadErr));
-                if (progressWrapper) progressWrapper.style.display = 'none';
-                downloadBtn.disabled = false;
-              }
-            });
+            container.querySelector('#btn-download-dist')?.addEventListener('click', (e) => executeDownload(e.currentTarget));
           }
         }
       } catch (err) {

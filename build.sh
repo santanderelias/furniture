@@ -27,6 +27,11 @@ if [[ -f "$script_dir/.env" ]]; then
   set +a
 fi
 
+# Normalize Android SDK paths to prevent Gradle conflicting variable errors
+if [[ -n "${ANDROID_HOME:-}" ]]; then
+  export ANDROID_SDK_ROOT="$ANDROID_HOME"
+fi
+
 for command in npm java; do
   command -v "$command" >/dev/null 2>&1 || {
     printf 'Required command not found: %s\n' "$command" >&2
@@ -77,12 +82,22 @@ else
   "
 fi
 
+# Calculate SHA-256 checksum of docs/dist.zip
+if command -v sha256sum >/dev/null 2>&1; then
+  zip_checksum="$(sha256sum "$script_dir/docs/dist.zip" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+  zip_checksum="$(shasum -a 256 "$script_dir/docs/dist.zip" | awk '{print $1}')"
+else
+  zip_checksum="$(node -e "const crypto = require('crypto'), fs = require('fs'); console.log(crypto.createHash('sha256').update(fs.readFileSync('$script_dir/docs/dist.zip')).digest('hex'));")"
+fi
+
 # Create docs/version.json manifest
 cat <<EOF > "$script_dir/docs/version.json"
 {
   "version": "$app_version",
   "url": "${ota_base_url}dist.zip",
   "zip": "dist.zip",
+  "checksum": "$zip_checksum",
   "buildDate": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
@@ -115,6 +130,7 @@ printf '=======================================================\n'
 printf ' Android APK:       %s\n' "$apk_path"
 printf ' GitHub Pages OTA:  %s\n' "$script_dir/docs/dist.zip"
 printf ' OTA Manifest:      %s\n' "$script_dir/docs/version.json"
+printf ' Checksum (SHA256): %s\n' "$zip_checksum"
 printf ' OTA Target URL:    %s\n' "$ota_base_url"
 printf ' App Version:       %s\n' "$app_version"
 printf '=======================================================\n'

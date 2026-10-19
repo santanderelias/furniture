@@ -1,4 +1,5 @@
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
+import { CapacitorHttp } from '@capacitor/core';
 import { isNativePlatform } from './dataService.js';
 import { i18nService } from './i18nService.js';
 
@@ -54,6 +55,37 @@ export function getOtaEndpoints(customUrl = null) {
     versionUrl = `${baseUrl}version.json`;
   }
   return { baseUrl, versionUrl };
+}
+
+/**
+ * Computes hexadecimal SHA-256 hash of given data (string, base64, ArrayBuffer, Blob)
+ */
+export async function computeSha256(data) {
+  try {
+    let arrayBuffer = null;
+    if (typeof data === 'string') {
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      arrayBuffer = bytes.buffer;
+    } else if (data instanceof ArrayBuffer) {
+      arrayBuffer = data;
+    } else if (data && data.buffer instanceof ArrayBuffer) {
+      arrayBuffer = data.buffer;
+    } else if (data instanceof Blob) {
+      arrayBuffer = await data.arrayBuffer();
+    }
+    if (!arrayBuffer) return null;
+    const hashBuf = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    return Array.from(new Uint8Array(hashBuf))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  } catch (e) {
+    console.warn('[Updater] computeSha256 failed:', e);
+    return null;
+  }
 }
 
 export const updaterService = {
@@ -124,23 +156,46 @@ export const updaterService = {
         ? `${versionUrl}&_t=${Date.now()}` 
         : `${versionUrl}?_t=${Date.now()}`;
 
-      const res = await fetch(cacheBustUrl, {
-        cache: 'no-store',
-        headers: {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
-      });
-
-      if (!res.ok) {
-        fetchError = new Error(`El servidor respondió con código HTTP ${res.status} (${res.statusText || 'Error'}) al consultar ${versionUrl}`);
-      } else {
+      // On Android / native devices, use native HTTP (bypasses WebView CORS/preflight entirely)
+      if (isNativePlatform()) {
         try {
-          serverData = await res.json();
-          attemptedSource = versionUrl;
-        } catch (jsonErr) {
-          fetchError = new Error(`La respuesta de ${versionUrl} no es un JSON válido (${jsonErr.message})`);
+          const nativeRes = await CapacitorHttp.get({
+            url: cacheBustUrl,
+            headers: {
+              'Accept': 'application/json'
+            }
+          });
+
+          if (nativeRes.status >= 200 && nativeRes.status < 300) {
+            serverData = typeof nativeRes.data === 'string' ? JSON.parse(nativeRes.data) : nativeRes.data;
+            attemptedSource = versionUrl;
+          } else {
+            fetchError = new Error(`El servidor respondió con código HTTP ${nativeRes.status} al consultar ${versionUrl}`);
+          }
+        } catch (nativeErr) {
+          console.warn('[Updater] CapacitorHttp native get failed, falling back to fetch:', nativeErr);
+        }
+      }
+
+      // If not native or native failed, use standard browser fetch as simple GET
+      // NOTE: Do NOT send custom Cache-Control or Pragma headers here, as they trigger
+      // CORS preflight OPTIONS requests that GitHub Pages rejects with 405 Method Not Allowed.
+      if (!serverData && !fetchError) {
+        const res = await fetch(cacheBustUrl, {
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!res.ok) {
+          fetchError = new Error(`El servidor respondió con código HTTP ${res.status} (${res.statusText || 'Error'}) al consultar ${versionUrl}`);
+        } else {
+          try {
+            serverData = await res.json();
+            attemptedSource = versionUrl;
+          } catch (jsonErr) {
+            fetchError = new Error(`La respuesta de ${versionUrl} no es un JSON válido (${jsonErr.message})`);
+          }
         }
       }
     } catch (netErr) {
@@ -219,6 +274,7 @@ export const updaterService = {
       assetUrl = `${baseUrl}dist.zip`;
     }
 
+    const checksum = (serverData.checksum || serverData.sha256 || serverData.hash || '').trim();
     const hasNewer = compareSemver(serverVersion, currentVersion) > 0;
 
     return {
@@ -228,6 +284,7 @@ export const updaterService = {
       serverVersion,
       latestVersion: serverVersion,
       assetUrl,
+      checksum,
       releaseName: serverData.name || `Versión ${serverVersion}`,
       publishedAt: serverData.buildDate || serverData.releaseDate || serverData.published_at || null,
       releaseNotes: serverData.notes || serverData.description || '',
@@ -240,7 +297,26 @@ export const updaterService = {
    */
   async downloadAndApplyUpdate(updateInfo, onProgress = null) {
     if (!updateInfo?.assetUrl) {
-      throw new Error('No valid download URL provided for update.');
+      throw new Error(i18nService.text('No se proporcionó una URL de descarga válida.'));
+    }
+
+    const checksum = (updateInfo.checksum || '').trim();
+
+    // Security contract: Capgo v6 and our integrity policy require SHA-256 checksum
+    if (!checksum) {
+      const missingErr = new Error(i18nService.text('El archivo version.json en el servidor no incluye el checksum criptográfico (SHA-256).'));
+      missingErr.detail = {
+        category: 'CHECKSUM_MISSING',
+        originalError: 'Missing SHA-256 checksum in version.json',
+        url: updateInfo.assetUrl,
+        version: updateInfo.latestVersion,
+        expectedChecksum: 'No especificado en version.json',
+        actualChecksum: null,
+        httpStatus: 200,
+        reason: 'El manifiesto version.json publicado en el servidor carece del campo "checksum" (SHA-256) requerido. Por seguridad, no se puede verificar la autenticidad del paquete.',
+        recommendation: 'Asegurate de ejecutar el script build.sh y subir los archivos docs/dist.zip y docs/version.json a GitHub con "git push".'
+      };
+      throw missingErr;
     }
 
     if (!isNativePlatform()) {
@@ -269,12 +345,15 @@ export const updaterService = {
       }
     }
 
+    const downloadOptions = {
+      url: updateInfo.assetUrl,
+      version: updateInfo.latestVersion,
+      checksum
+    };
+
     try {
-      console.log(`[Updater] Downloading update ${updateInfo.latestVersion} from ${updateInfo.assetUrl}`);
-      const update = await CapacitorUpdater.download({
-        url: updateInfo.assetUrl,
-        version: updateInfo.latestVersion
-      });
+      console.log(`[Updater] Downloading update ${updateInfo.latestVersion} from ${updateInfo.assetUrl} (SHA-256: ${checksum})`);
+      const update = await CapacitorUpdater.download(downloadOptions);
 
       if (downloadListener) {
         await downloadListener.remove();
@@ -291,7 +370,74 @@ export const updaterService = {
         try { await downloadListener.remove(); } catch (e) {}
       }
       console.error('[Updater] Download or activation failed:', err);
-      throw err;
+
+      const originalError = err.message || String(err);
+
+      // Run diagnostic check to identify the exact cause (checksum mismatch, 404, network, or storage)
+      let diagDetail = {
+        category: 'DOWNLOAD_FAILED',
+        originalError,
+        url: updateInfo.assetUrl,
+        version: updateInfo.latestVersion,
+        expectedChecksum: checksum,
+        actualChecksum: null,
+        httpStatus: null,
+        reason: 'Error durante la descarga o validación en el dispositivo.',
+        recommendation: 'Verificá tu conexión a internet y que el archivo dist.zip esté disponible en el servidor.'
+      };
+
+      try {
+        let rawData = null;
+        let status = null;
+
+        if (isNativePlatform()) {
+          const check = await CapacitorHttp.get({
+            url: updateInfo.assetUrl,
+            responseType: 'arraybuffer'
+          });
+          status = check.status;
+          rawData = check.data;
+        } else {
+          const check = await fetch(updateInfo.assetUrl);
+          status = check.status;
+          if (check.ok) {
+            rawData = await check.arrayBuffer();
+          }
+        }
+
+        diagDetail.httpStatus = status;
+
+        if (status === 404) {
+          diagDetail.category = 'FILE_NOT_FOUND';
+          diagDetail.reason = 'El archivo dist.zip no se encontró en el servidor (HTTP 404 Not Found).';
+          diagDetail.recommendation = 'Verificá que dist.zip exista en la carpeta docs/ y esté publicado en GitHub Pages.';
+        } else if (status && status >= 400) {
+          diagDetail.category = 'HTTP_ERROR';
+          diagDetail.reason = `El servidor web respondió con un error HTTP ${status}.`;
+          diagDetail.recommendation = 'Revisá la configuración de acceso o permisos en GitHub Pages.';
+        } else if (rawData) {
+          const computedHash = await computeSha256(rawData);
+          diagDetail.actualChecksum = computedHash;
+
+          if (computedHash && computedHash.toLowerCase() !== checksum.toLowerCase()) {
+            diagDetail.category = 'CHECKSUM_MISMATCH';
+            diagDetail.reason = `Fallo de verificación de integridad (Checksum Mismatch): El hash SHA-256 del archivo dist.zip en el servidor no coincide con el valor esperado indicado en version.json.`;
+            diagDetail.recommendation = `El archivo dist.zip en el servidor no coincide con el manifest publicado. Ejecutá build.sh y subí los cambios con git push.`;
+          } else {
+            diagDetail.category = 'UNZIP_OR_STORAGE';
+            diagDetail.reason = 'El archivo dist.zip se descargó y su checksum es correcto, pero el plugin Capgo no pudo desempaquetarlo (posible archivo zip dañado o falta de espacio de almacenamiento).';
+            diagDetail.recommendation = 'Verificá el espacio libre en el dispositivo y que el archivo dist.zip sea un archivo ZIP válido.';
+          }
+        }
+      } catch (diagNetErr) {
+        diagDetail.category = 'NETWORK_ERROR';
+        diagDetail.reason = `Error de conexión de red al intentar descargar el paquete (${diagNetErr.message || 'Sin conexión o tiempo de espera agotado'}).`;
+        diagDetail.recommendation = 'Comprobá la conexión Wi-Fi o datos móviles de tu dispositivo.';
+      }
+
+      const enhancedError = new Error(diagDetail.reason);
+      enhancedError.detail = diagDetail;
+      throw enhancedError;
     }
   },
 

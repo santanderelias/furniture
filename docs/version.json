@@ -1,6 +1,7 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "url": "https://santanderelias.github.io/furniture/dist.zip",
   "zip": "dist.zip",
-  "buildDate": "2026-10-13T22:28:41Z"
+  "checksum": "1be1c7f4178e36a5ef1692994aea423bea297abc31258230bb7801e5ac504709",
+  "buildDate": "2026-10-19T15:08:06Z"
 }
